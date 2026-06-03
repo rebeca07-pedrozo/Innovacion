@@ -2,6 +2,8 @@
  * SISTEMA DE ALERTAS TRIBUTARIAS - Google Apps Script
  * Revisa diariamente las obligaciones y envía correos
  * cuando faltan exactamente 15, 7 o 3 días para el vencimiento.
+ * HISTORICO_ALERTAS queda enriquecido para conectarlo
+ * directamente a Looker Studio.
  *************************************************************/
 
 /* ============================================================
@@ -35,6 +37,27 @@ const COLOR_ALERTA = {
 const COL_OBL = { ID: 0, COMPANIA: 1, NIT: 2, DV: 3, TIPO_DOC: 4, TIPO_OBL: 5, FECHA_VENC: 6 };
 const COL_RESP = { COMPANIA: 0, RESPONSABLE: 1, CORREO: 2 };
 
+// Esquema ENRIQUECIDO de HISTORICO_ALERTAS (lo que conectaremos a Looker).
+// IMPORTANTE: si la hoja tenía el esquema viejo, bórrala y deja solo estos encabezados.
+const HIST_HEADERS = [
+  "FECHA_ENVIO",       // A - fecha/hora real del envío
+  "ANIO_MES_ENVIO",    // B - yyyy-MM, útil para agrupar en Looker
+  "COMPANIA",          // C
+  "NIT",               // D - incluye DV (ej. 900123456-1)
+  "TIPO_OBLIGACION",   // E
+  "FECHA_VENCIMIENTO", // F - fecha real (no texto)
+  "DIAS_RESTANTES",    // G - 15, 7 o 3 según la alerta
+  "TIPO_ALERTA",       // H
+  "RESPONSABLE",       // I
+  "CORREO"             // J
+];
+
+// Índices (base 0) del histórico, usados para validar duplicados al leerlo.
+const COL_HIST = {
+  FECHA_ENVIO: 0, ANIO_MES: 1, COMPANIA: 2, NIT: 3, TIPO_OBL: 4,
+  FECHA_VENC: 5, DIAS_REST: 6, TIPO_ALERTA: 7, RESPONSABLE: 8, CORREO: 9
+};
+
 /* ============================================================
  * FUNCIÓN PRINCIPAL
  * ========================================================== */
@@ -51,6 +74,9 @@ function revisarVencimientos() {
     const hojaObl  = obtenerHoja(ss, HOJA_OBLIGACIONES);
     const hojaResp = obtenerHoja(ss, HOJA_RESPONSABLES);
     const hojaHist = obtenerHoja(ss, HOJA_HISTORICO);
+
+    // 0. Asegurar que el histórico tenga los encabezados correctos.
+    asegurarEncabezadosHistorico(hojaHist);
 
     // 1. Cargar responsables (Mapa: COMPAÑIA normalizada -> {responsable, correo}).
     const responsables = obtenerResponsables(hojaResp);
@@ -103,10 +129,13 @@ function revisarVencimientos() {
       }
 
       // Empaquetar todos los datos para el correo y el registro.
+      const nit = String(fila[COL_OBL.NIT] || "").trim();
+      const dv  = String(fila[COL_OBL.DV] || "").trim();
       const datosAlerta = {
         compania: compania,
-        nit: String(fila[COL_OBL.NIT] || "").trim(),
-        dv: String(fila[COL_OBL.DV] || "").trim(),
+        nit: nit,
+        dv: dv,
+        nitCompleto: dv ? (nit + "-" + dv) : nit,
         tipoObligacion: tipoObligacion,
         fechaVencimiento: fechaVenc,
         fechaVencimientoTexto: formatearFecha(fechaVenc, "dd/MM/yyyy"),
@@ -146,8 +175,6 @@ function revisarVencimientos() {
 /**
  * Lee la hoja RESPONSABLES y devuelve un objeto/mapa
  * indexado por nombre de compañía normalizado para búsqueda rápida.
- * @param {Sheet} hojaResp Hoja de responsables.
- * @return {Object} { "COMPAÑIA": {responsable, correo}, ... }
  */
 function obtenerResponsables(hojaResp) {
   const mapa = {};
@@ -173,14 +200,11 @@ function obtenerResponsables(hojaResp) {
  * Calcula la diferencia en días calendario entre hoy y la fecha
  * de vencimiento, normalizando ambas a medianoche en la zona horaria
  * configurada para evitar errores por horas o DST.
- * @param {Date} fechaVencimiento Fecha de vencimiento.
- * @return {number} Días restantes (positivo = futuro).
  */
 function calcularDiasRestantes(fechaVencimiento) {
   const hoyStr = formatearFecha(new Date(), "yyyy-MM-dd");
   const venStr = formatearFecha(fechaVencimiento, "yyyy-MM-dd");
 
-  // Se interpretan como UTC para que la resta sea exacta en días.
   const hoyUTC = new Date(hoyStr + "T00:00:00Z");
   const venUTC = new Date(venStr + "T00:00:00Z");
 
@@ -193,9 +217,6 @@ function calcularDiasRestantes(fechaVencimiento) {
  * ========================================================== */
 /**
  * Indica si una alerta ya fue registrada previamente.
- * @param {Set} clavesEnviadas Conjunto de claves del histórico.
- * @param {string} clave Clave única de la alerta.
- * @return {boolean} true si ya existe.
  */
 function alertaYaEnviada(clavesEnviadas, clave) {
   return clavesEnviadas.has(clave);
@@ -204,20 +225,16 @@ function alertaYaEnviada(clavesEnviadas, clave) {
 /**
  * Carga el histórico existente en un Set de claves únicas
  * para validar duplicados en O(1).
- * @param {Sheet} hojaHist Hoja HISTORICO_ALERTAS.
- * @return {Set<string>} Conjunto de claves ya registradas.
  */
 function cargarClavesHistorico(hojaHist) {
   const claves = new Set();
   const datos = hojaHist.getDataRange().getValues();
 
-  // Columnas del histórico: A=FECHA_ENVIO, B=COMPAÑIA, C=TIPO_OBLIGACION,
-  // D=FECHA_VENCIMIENTO, E=TIPO_ALERTA, F=CORREO
   for (let i = 1; i < datos.length; i++) {
-    const compania  = datos[i][1];
-    const tipoObl   = datos[i][2];
-    const fechaVenc = aFecha(datos[i][3]);
-    const tipoAlerta = datos[i][4];
+    const compania   = datos[i][COL_HIST.COMPANIA];
+    const tipoObl    = datos[i][COL_HIST.TIPO_OBL];
+    const fechaVenc  = aFecha(datos[i][COL_HIST.FECHA_VENC]);
+    const tipoAlerta = datos[i][COL_HIST.TIPO_ALERTA];
 
     if (!compania || !fechaVenc) {
       continue;
@@ -231,22 +248,23 @@ function cargarClavesHistorico(hojaHist) {
  * REGISTRAR ALERTA
  * ========================================================== */
 /**
- * Prepara una nueva fila para el histórico y la agrega al lote
- * pendiente. También añade su clave al Set para evitar duplicados
- * dentro de la misma ejecución.
- * @param {Object} datos Datos de la alerta.
- * @param {Array[]} filasPendientes Acumulador de filas a escribir.
- * @param {Set} clavesEnviadas Set de claves enviadas.
- * @param {string} clave Clave única de esta alerta.
+ * Prepara una nueva fila ENRIQUECIDA para el histórico y la agrega
+ * al lote pendiente. Escribe fechas reales para que Looker las
+ * interprete como fechas y no como texto.
  */
 function registrarAlerta(datos, filasPendientes, clavesEnviadas, clave) {
+  const ahora = new Date();
   const fila = [
-    formatearFecha(new Date(), "dd/MM/yyyy HH:mm:ss"), // FECHA_ENVIO
-    datos.compania,                                    // COMPAÑIA
-    datos.tipoObligacion,                              // TIPO_OBLIGACION
-    datos.fechaVencimientoTexto,                       // FECHA_VENCIMIENTO
-    datos.tipoAlerta,                                  // TIPO_ALERTA
-    datos.correo                                       // CORREO
+    ahora,                                   // A FECHA_ENVIO (fecha/hora real)
+    formatearFecha(ahora, "yyyy-MM"),        // B ANIO_MES_ENVIO
+    datos.compania,                          // C COMPANIA
+    datos.nitCompleto,                       // D NIT (con DV)
+    datos.tipoObligacion,                    // E TIPO_OBLIGACION
+    datos.fechaVencimiento,                  // F FECHA_VENCIMIENTO (fecha real)
+    datos.diasRestantes,                     // G DIAS_RESTANTES
+    datos.tipoAlerta,                        // H TIPO_ALERTA
+    datos.responsable,                       // I RESPONSABLE
+    datos.correo                             // J CORREO
   ];
   filasPendientes.push(fila);
   clavesEnviadas.add(clave); // Evita doble envío en la misma corrida.
@@ -255,8 +273,6 @@ function registrarAlerta(datos, filasPendientes, clavesEnviadas, clave) {
 /**
  * Escribe todas las filas nuevas en HISTORICO_ALERTAS en una sola
  * operación (eficiente para grandes volúmenes).
- * @param {Sheet} hojaHist Hoja del histórico.
- * @param {Array[]} filas Filas a escribir.
  */
 function escribirHistorico(hojaHist, filas) {
   if (!filas || filas.length === 0) {
@@ -266,12 +282,22 @@ function escribirHistorico(hojaHist, filas) {
   hojaHist.getRange(inicio, 1, filas.length, filas[0].length).setValues(filas);
 }
 
+/**
+ * Si el histórico está vacío, escribe la fila de encabezados.
+ * No toca los datos si ya existen.
+ */
+function asegurarEncabezadosHistorico(hojaHist) {
+  if (hojaHist.getLastRow() === 0) {
+    hojaHist.getRange(1, 1, 1, HIST_HEADERS.length).setValues([HIST_HEADERS]);
+    Logger.log("Encabezados de HISTORICO_ALERTAS creados.");
+  }
+}
+
 /* ============================================================
  * ENVIAR CORREO
  * ========================================================== */
 /**
  * Envía el correo de alerta en formato HTML profesional.
- * @param {Object} datos Datos completos de la alerta.
  */
 function enviarCorreoAlerta(datos) {
   const asunto = "[ALERTA TRIBUTARIA] " + datos.tipoObligacion + " - " + datos.compania;
@@ -287,12 +313,9 @@ function enviarCorreoAlerta(datos) {
 
 /**
  * Construye el cuerpo HTML del correo con una tabla informativa.
- * @param {Object} datos Datos de la alerta.
- * @return {string} HTML del correo.
  */
 function construirCuerpoHTML(datos) {
   const color = COLOR_ALERTA[datos.tipoAlerta] || "#374151";
-  const nitCompleto = datos.dv ? (datos.nit + "-" + datos.dv) : datos.nit;
 
   return ''
     + '<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;'
@@ -307,7 +330,7 @@ function construirCuerpoHTML(datos) {
     +     'Faltan <strong>' + datos.diasRestantes + ' día(s)</strong> para su vencimiento.</p>'
     +     '<table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px;">'
     +       fila("Compañía", datos.compania)
-    +       fila("NIT", nitCompleto)
+    +       fila("NIT", datos.nitCompleto)
     +       fila("Tipo de obligación", datos.tipoObligacion)
     +       fila("Fecha de vencimiento", datos.fechaVencimientoTexto)
     +       fila("Días restantes", String(datos.diasRestantes))
@@ -319,7 +342,6 @@ function construirCuerpoHTML(datos) {
     +   '</div>'
     + '</div>';
 
-  // Función interna para generar cada fila de la tabla.
   function fila(etiqueta, valor) {
     return '<tr>'
       + '<td style="padding:8px 12px;border:1px solid #e5e7eb;background:#f9fafb;'
@@ -333,8 +355,7 @@ function construirCuerpoHTML(datos) {
  * FUNCIÓN DE PRUEBA MANUAL
  * ========================================================== */
 /**
- * Ejecuta el flujo completo de forma manual desde el editor de
- * Apps Script. Útil para validar el funcionamiento y revisar logs.
+ * Ejecuta el flujo completo de forma manual desde el editor.
  * Importante: SÍ envía correos reales si hay coincidencias.
  */
 function pruebaAlertas() {
@@ -346,9 +367,7 @@ function pruebaAlertas() {
 /* ============================================================
  * UTILIDADES AUXILIARES
  * ========================================================== */
-/**
- * Obtiene una hoja por nombre o lanza un error claro si no existe.
- */
+/** Obtiene una hoja por nombre o lanza un error claro si no existe. */
 function obtenerHoja(ss, nombre) {
   const hoja = ss.getSheetByName(nombre);
   if (!hoja) {
@@ -357,10 +376,7 @@ function obtenerHoja(ss, nombre) {
   return hoja;
 }
 
-/**
- * Construye la clave única para validar duplicados.
- * Combina compañía, tipo de obligación, fecha de vencimiento y tipo de alerta.
- */
+/** Construye la clave única para validar duplicados. */
 function construirClave(compania, tipoObligacion, fechaVencDate, tipoAlerta) {
   const fechaKey = formatearFecha(fechaVencDate, "yyyy-MM-dd");
   return [
@@ -371,16 +387,12 @@ function construirClave(compania, tipoObligacion, fechaVencDate, tipoAlerta) {
   ].join("||");
 }
 
-/**
- * Normaliza texto para comparaciones (sin espacios extra, en mayúsculas).
- */
+/** Normaliza texto para comparaciones (sin espacios extra, en mayúsculas). */
 function normalizar(valor) {
   return String(valor || "").trim().toUpperCase();
 }
 
-/**
- * Formatea una fecha usando la zona horaria configurada.
- */
+/** Formatea una fecha usando la zona horaria configurada. */
 function formatearFecha(fecha, patron) {
   return Utilities.formatDate(fecha, ZONA_HORARIA, patron);
 }
@@ -388,7 +400,6 @@ function formatearFecha(fecha, patron) {
 /**
  * Convierte un valor de celda a objeto Date.
  * Acepta objetos Date o cadenas en formato dd/MM/yyyy.
- * @return {Date|null} Fecha válida o null.
  */
 function aFecha(valor) {
   if (valor instanceof Date && !isNaN(valor.getTime())) {
@@ -408,9 +419,7 @@ function aFecha(valor) {
   return null;
 }
 
-/**
- * Valida un correo electrónico con una expresión regular básica.
- */
+/** Valida un correo electrónico con una expresión regular básica. */
 function esCorreoValido(correo) {
   if (!correo) {
     return false;
