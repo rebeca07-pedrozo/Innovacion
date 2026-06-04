@@ -13,3 +13,18 @@ print("\n--- Conteo de posibles separadores en la 1ra línea ---")
 h = lineas[0]
 for nombre, ch in [("TAB", "\t"), ("punto y coma", ";"), ("coma", ","), ("pipe", "|")]:
     print(f"{nombre}: {h.count(ch)}")
+
+
+# ---- DIAGNÓSTICO: ver la estructura REAL de las filas de datos ----
+archivos = listar_txts(ID_CARPETA_DRIVE)
+texto = descargar_texto(archivos[0]['id'])
+lineas = texto.splitlines()
+
+h = next(i for i, l in enumerate(lineas) if 'COD_AUX' in l)
+print("== ENCABEZADO ==")
+print(repr(lineas[h]))
+print("\n== LÍNEAS SIGUIENTES (encabezado partido + guiones + primeros datos) ==")
+for i in range(h, h + 9):
+    if i < len(lineas):
+        print(f"[{i}] len={len(lineas[i])}  tabs={lineas[i].count(chr(9))}")
+        print("   ", repr(lineas[i]))
