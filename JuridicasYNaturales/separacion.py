@@ -31,7 +31,7 @@ TIPO_REPORTE = "suma"      # opciones: "suma"  ó  "conteo"
 print("✅ Configuración cargada")
 
 # ============================================================
-#  BLOQUE 3: Funciones de Drive + lectura del .txt
+#  BLOQUE 3: Funciones de Drive + lectura del .txt (ANCHO FIJO)
 # ============================================================
 def listar_txts(carpeta_id):
     q = f"'{carpeta_id}' in parents and trashed=false"
@@ -72,28 +72,48 @@ def subir_archivo(carpeta_id, nombre, data_bytes, mimetype, reemplazar=True):
                            media_body=media, fields='id').execute()
 
 def leer_df(texto):
-    """Lee el reporte separado por tabs, ubicando la fila de encabezado con COD_AUX."""
+    """Lee el reporte de ANCHO FIJO. Usa la fila de guiones (----) para
+       detectar las posiciones exactas de cada columna."""
     lineas = texto.splitlines()
 
-    # 1. Localizar la fila de encabezado (la que contiene 'COD_AUX')
-    idx_header = None
-    for i, l in enumerate(lineas):
-        if 'COD_AUX' in l.split('\t'):
-            idx_header = i
-            break
+    # 1. Fila de encabezado: la que contiene 'COD_AUX'
+    idx_header = next((i for i, l in enumerate(lineas) if 'COD_AUX' in l), None)
     if idx_header is None:
-        for i, l in enumerate(lineas):
-            if 'COD_AUX' in l:
-                idx_header = i
-                break
-    if idx_header is None:
-        raise ValueError("No encontré la fila de encabezado con COD_AUX en este archivo")
+        raise ValueError("No encontré la fila de encabezado con COD_AUX")
 
-    # 2. Nombres de columna (haciendo únicos los vacíos/repetidos)
-    raw_cols = [c.strip() for c in lineas[idx_header].split('\t')]
+    # 2. Fila de guiones (----) que define los anchos de columna
+    idx_guion = None
+    for k in range(idx_header + 1, min(idx_header + 8, len(lineas))):
+        sin_esp = lineas[k].replace(' ', '')
+        if sin_esp and set(sin_esp) <= set('-'):
+            idx_guion = k
+            break
+    if idx_guion is None:
+        raise ValueError("No encontré la fila de guiones (----) para los anchos")
+
+    # 3. Calcular (inicio, fin) de cada columna a partir de los guiones
+    guion = lineas[idx_guion]
+    spans, j, n = [], 0, len(guion)
+    while j < n:
+        if guion[j] == '-':
+            ini = j
+            while j < n and guion[j] == '-':
+                j += 1
+            spans.append((ini, j))
+        else:
+            j += 1
+    # La última columna (VALOR) se extiende hasta el final por si el valor es ancho
+    if spans:
+        a, b = spans[-1]
+        spans[-1] = (a, 100000)
+
+    # 4. Nombres de columna: cortar el encabezado en esos spans
+    header = lineas[idx_header]
     cols, vistos = [], {}
-    for j, c in enumerate(raw_cols):
-        nombre = c if c else f"col_{j}"
+    for (a, b) in spans:
+        nombre = header[a:b].strip()
+        if not nombre:
+            nombre = f"col_{a}"
         if nombre in vistos:
             vistos[nombre] += 1
             nombre = f"{nombre}_{vistos[nombre]}"
@@ -101,35 +121,21 @@ def leer_df(texto):
             vistos[nombre] = 0
         cols.append(nombre)
 
-    # 3. Saltar el encabezado partido y la fila de guiones
-    inicio = idx_header + 1
-    for k in range(idx_header + 1, min(idx_header + 6, len(lineas))):
-        sin_tabs = lineas[k].replace('\t', '').strip()
-        if sin_tabs and set(sin_tabs) <= set('-'):
-            inicio = k + 1
-            break
-
-    # 4. Construir el DataFrame ajustando cada fila al número de columnas
+    # 5. Datos: desde después de los guiones, cortando por spans
     filas = []
-    for l in lineas[inicio:]:
+    for l in lineas[idx_guion + 1:]:
         if not l.strip():
             continue
-        partes = l.split('\t')
-        if len(partes) < len(cols):
-            partes += [''] * (len(cols) - len(partes))
-        elif len(partes) > len(cols):
-            partes = partes[:len(cols)]
-        filas.append(partes)
+        filas.append([l[a:b].strip() for (a, b) in spans])
 
     return pd.DataFrame(filas, columns=cols)
 
-print("✅ Funciones de Drive y lectura listas")
+print("✅ Funciones de Drive y lectura (ancho fijo) listas")
 
 # ============================================================
 #  BLOQUE 4: Clasificación de persona y parseo de VALOR
 # ============================================================
 def resolver_col(df, objetivo, palabra_clave=None):
-    """Encuentra la columna real aunque tenga espacios/# raros."""
     if objetivo in df.columns:
         return objetivo
     norm = {c.strip().upper(): c for c in df.columns}
@@ -144,8 +150,12 @@ def resolver_col(df, objetivo, palabra_clave=None):
         return cands[0]
     return None
 
+def _digitos(v):
+    """Deja solo dígitos y QUITA los ceros de la izquierda (relleno del reporte)."""
+    s = re.sub(r'\D', '', '' if pd.isna(v) else str(v))
+    return s.lstrip('0')
+
 def parse_valor(v):
-    """Convierte el texto de VALOR a número (maneja 1.234.567,89 / negativos / paréntesis)."""
     if pd.isna(v):
         return 0.0
     s = str(v).strip()
@@ -168,11 +178,11 @@ def parse_valor(v):
     return -x if neg else x
 
 def clasificar_persona(cod_aux, ident):
-    """Reglas: COD_AUX; si está vacío usa IDENTIFICACION.
+    """COD_AUX; si está vacío usa IDENTIFICACION (ambos sin ceros a la izquierda).
        <10 díg -> natural | 10 díg inicia en 1 -> natural | 10 díg no inicia en 1 -> jurídica."""
-    s = re.sub(r'\D', '', '' if pd.isna(cod_aux) else str(cod_aux))
+    s = _digitos(cod_aux)
     if not s:
-        s = re.sub(r'\D', '', '' if pd.isna(ident) else str(ident))
+        s = _digitos(ident)
     if not s:
         return 'vacios'
     n = len(s)
@@ -183,7 +193,8 @@ def clasificar_persona(cod_aux, ident):
 print("✅ Funciones de clasificación listas")
 
 # ============================================================
-#  BLOQUE 5: Proceso principal -> genera UN Excel por cuenta
+#  BLOQUE 5: Reporte por cuenta -> 1 Excel
+#  A: Cuenta | B: Naturales | C: Juridicas | D: Vacios
 # ============================================================
 archivos = listar_txts(ID_CARPETA_DRIVE)
 print(f"Archivos .txt encontrados: {len(archivos)}")
@@ -215,7 +226,11 @@ if not frames:
     raise SystemExit("Ningún archivo trajo las columnas necesarias.")
 
 data = pd.concat(frames, ignore_index=True)
-data = data[data['CUENTA'] != ''].copy()   # quita títulos/totales/líneas sin cuenta
+
+# Conservar solo filas con cuenta NUMÉRICA (descarta títulos, encabezados repetidos, totales)
+data = data[data['CUENTA'].str.fullmatch(r'\d+')].copy()
+if data.empty:
+    raise SystemExit("No quedaron filas con cuenta numérica. Revisa el archivo.")
 
 data['_grupo'] = data.apply(lambda r: clasificar_persona(r['COD_AUX'], r['IDENT']), axis=1)
 data['_valor'] = data['VALOR'].apply(parse_valor)
@@ -224,30 +239,32 @@ print("\nConteo de registros por grupo:")
 print(data['_grupo'].value_counts())
 n_raros = int((data['_grupo'] == 'mas_de_10').sum())
 if n_raros:
-    print(f"⚠ {n_raros} registros con MÁS de 10 dígitos -> quedan en columna 'Mas_de_10'.")
+    print(f"⚠ {n_raros} registros con MÁS de 10 dígitos -> van en columna extra 'Mas_de_10_REVISAR'.")
 
-# ----- Construir el reporte por cuenta (suma o conteo según BLOQUE 2) -----
-agg = 'sum' if TIPO_REPORTE == 'suma' else 'count'
-valor_col = '_valor' if TIPO_REPORTE == 'suma' else '_grupo'
+# ----- Suma (o conteo) de VALOR por cuenta y grupo -----
+if TIPO_REPORTE == 'conteo':
+    data['_metrica'] = 1
+    metrica = '_metrica'
+else:
+    metrica = '_valor'
 
-reporte = data.pivot_table(index='CUENTA', columns='_grupo', values=valor_col,
-                           aggfunc=agg, fill_value=0)
+resumen = data.groupby(['CUENTA', '_grupo'])[metrica].sum().unstack(fill_value=0)
 for g in ['naturales', 'juridicas', 'vacios', 'mas_de_10']:
-    if g not in reporte.columns:
-        reporte[g] = 0
+    if g not in resumen.columns:
+        resumen[g] = 0
+
 orden = ['naturales', 'juridicas', 'vacios'] + (['mas_de_10'] if n_raros else [])
-reporte = reporte[orden].reset_index().rename(columns={
-    'CUENTA': 'Cuenta', 'naturales': 'Naturales', 'juridicas': 'Juridicas',
-    'vacios': 'Vacios', 'mas_de_10': 'Mas_de_10'})
+reporte = resumen[orden].reset_index()
+reporte.columns = (['Cuenta', 'Naturales', 'Juridicas', 'Vacios']
+                   + (['Mas_de_10_REVISAR'] if n_raros else []))
+reporte = reporte.sort_values('Cuenta').reset_index(drop=True)
 
-reporte = reporte.sort_values('Cuenta').reset_index(drop=True)   # ordenado por cuenta
-
-# Fila de TOTAL al final
+# Fila de TOTAL
 cols_num = [c for c in reporte.columns if c != 'Cuenta']
 total = {'Cuenta': 'TOTAL', **{c: reporte[c].sum() for c in cols_num}}
 reporte = pd.concat([reporte, pd.DataFrame([total])], ignore_index=True)
 
-print(f"\nCuentas en el reporte: {len(reporte) - 1}  |  Tipo de reporte: {TIPO_REPORTE.upper()}")
+print(f"\nCuentas en el reporte: {len(reporte) - 1}  |  Tipo: {TIPO_REPORTE.upper()}")
 
 # ----- Guardar 1 solo Excel -----
 carpeta_salida = obtener_o_crear_subcarpeta(ID_CARPETA_DRIVE, 'resultados')
