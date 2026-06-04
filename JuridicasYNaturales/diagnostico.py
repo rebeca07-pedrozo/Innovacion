@@ -28,3 +28,13 @@ for i in range(h, h + 9):
     if i < len(lineas):
         print(f"[{i}] len={len(lineas[i])}  tabs={lineas[i].count(chr(9))}")
         print("   ", repr(lineas[i]))
+
+
+import os
+
+carpeta_entrada = "/content/drive/My Drive/Optimizacion-Premios/2026/Entrada/"
+
+print("¿Existe la carpeta?:", os.path.isdir(carpeta_entrada))
+print("\nContenido REAL de la carpeta:")
+for f in os.listdir(carpeta_entrada):
+    print("  ->", repr(f))   # repr muestra espacios ocultos y la extensión real
