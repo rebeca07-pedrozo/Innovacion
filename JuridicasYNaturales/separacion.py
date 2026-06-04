@@ -151,6 +151,9 @@ def exportar(df, nombre_base, carpeta_id):
 # ============================================================
 #  PROCESO PRINCIPAL
 # ============================================================
+# ============================================================
+#  PROCESO PRINCIPAL  -> UN SOLO EXCEL CON 3 COLUMNAS
+# ============================================================
 archivos = listar_txts(ID_CARPETA_DRIVE)
 print(f"Archivos .txt encontrados: {len(archivos)}")
 if not archivos:
@@ -160,12 +163,11 @@ frames = []
 for f in archivos:
     print(f" - Leyendo: {f['name']}")
     df = leer_df(descargar_texto(f['id']))
-    df.columns = df.columns.str.strip()          # limpia espacios en los nombres de columna
+    df.columns = df.columns.str.strip()
     if NOMBRE_COLUMNA not in df.columns:
-        print(f"   ¡OJO! '{NOMBRE_COLUMNA}' no está. Columnas disponibles: {list(df.columns)}")
+        print(f"   ¡OJO! '{NOMBRE_COLUMNA}' no está. Columnas: {list(df.columns)}")
         continue
-    df['archivo_origen'] = f['name']
-    frames.append(df)
+    frames.append(df[[NOMBRE_COLUMNA]])
 
 if not frames:
     raise SystemExit(f"Ningún archivo tiene la columna '{NOMBRE_COLUMNA}'.")
@@ -173,22 +175,37 @@ if not frames:
 data = pd.concat(frames, ignore_index=True)
 data['_grupo'] = data[NOMBRE_COLUMNA].apply(clasificar)
 
+# Dejar solo los dígitos en el valor que se va a escribir
+data['_valor'] = data[NOMBRE_COLUMNA].apply(lambda v: re.sub(r'\D', '', '' if pd.isna(v) else str(v)))
+
 print("\nResumen por grupo:")
 print(data['_grupo'].value_counts())
 
-# Separar en los grupos
-g_juridicas  = data[data['_grupo'] == 'juridicas' ].drop(columns='_grupo')   # 10 díg, NO inician 1
-g_naturales  = data[data['_grupo'] == 'naturales' ].drop(columns='_grupo')   # 10 díg, inician 1
-g_menos10    = data[data['_grupo'] == 'menos_de_10'].drop(columns='_grupo')  # menos de 10 díg
-g_otros      = data[data['_grupo'].isin(['mas_de_10', 'sin_dato'])].drop(columns='_grupo')
+# Tres listas de valores
+menor    = data.loc[data['_grupo'] == 'menos_de_10', '_valor'].tolist()
+naturales= data.loc[data['_grupo'] == 'naturales',   '_valor'].tolist()
+juridicos= data.loc[data['_grupo'] == 'juridicas',   '_valor'].tolist()
 
-# Carpeta de salida (subcarpeta 'resultados' dentro de la misma carpeta)
+# Armar el DataFrame en columnas (rellena con vacío para que queden alineadas)
+maxlen = max(len(menor), len(naturales), len(juridicos), 1)
+def rellenar(lst):
+    return lst + [''] * (maxlen - len(lst))
+
+salida = pd.DataFrame({
+    'MENOR_LONGITUD': rellenar(menor),     # Columna A
+    'NATURALES':      rellenar(naturales), # Columna B
+    'JURIDICOS':      rellenar(juridicos), # Columna C
+})
+
+# Guardar UN solo Excel en la subcarpeta 'resultados'
 carpeta_salida = obtener_o_crear_subcarpeta(ID_CARPETA_DRIVE, 'resultados')
+buf = io.BytesIO()
+with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+    salida.to_excel(writer, index=False, sheet_name='resultado')
+subir_archivo(carpeta_salida, 'resultado_cod_aux.xlsx', buf.getvalue(),
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-print("\nGenerando archivos de salida...")
-exportar(g_juridicas, "JURIDICAS_10digitos_no_inician_1", carpeta_salida)
-exportar(g_naturales, "NATURALES_10digitos_inician_1",   carpeta_salida)
-exportar(g_menos10,   "MENOS_DE_10_digitos",             carpeta_salida)
-exportar(g_otros,     "OTROS_revisar",                   carpeta_salida)  # casos raros, por si acaso
-
-print("\n¡Listo! Revisa la subcarpeta 'resultados' dentro de tu carpeta de Drive.")
+print(f"\n¡Listo! 'resultado_cod_aux.xlsx' generado en la subcarpeta 'resultados'.")
+print(f"   Columna A (menor longitud): {len(menor)}")
+print(f"   Columna B (naturales):      {len(naturales)}")
+print(f"   Columna C (jurídicos):      {len(juridicos)}")
