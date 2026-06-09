@@ -242,10 +242,15 @@ reporte = pd.concat([reporte, pd.DataFrame([total])], ignore_index=True)
 print(f"\nCuentas en el reporte: {len(reporte) - 1}  |  Tipo: {TIPO_REPORTE.upper()}")
 
 # Guardar 1 solo Excel
+# ----- Guardar Excel con FECHA Y HORA en el nombre (no sobreescribe) -----
+ahora = datetime.now(pytz.timezone('America/Bogota')).strftime('%Y-%m-%d_%H-%M')
+nombre_archivo = f'reporte_por_cuenta_{ahora}.xlsx'
+
 carpeta_salida = obtener_o_crear_subcarpeta(ID_CARPETA_DRIVE, 'resultados')
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     reporte.to_excel(writer, index=False, sheet_name='reporte')
-subir_archivo(carpeta_salida, 'reporte_por_cuenta.xlsx', buf.getvalue(),
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-print("\n¡Listo! 'reporte_por_cuenta.xlsx' en la subcarpeta 'resultados'.")
+subir_archivo(carpeta_salida, nombre_archivo, buf.getvalue(),
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              reemplazar=False)   # <-- False = cada corrida crea un archivo nuevo
+print(f"\n¡Listo! '{nombre_archivo}' en la subcarpeta 'resultados'.")
