@@ -71,49 +71,73 @@ def subir_archivo(carpeta_id, nombre, data_bytes, mimetype, reemplazar=True):
     service.files().create(body={'name': nombre, 'parents': [carpeta_id]},
                            media_body=media, fields='id').execute()
 
-def leer_df(texto):
-    """Lee el reporte de ANCHO FIJO. Usa la fila de guiones (----) para
-       detectar las posiciones exactas de cada columna."""
-    lineas = texto.splitlines()
+# ---------- helpers de ancho fijo ----------
+def _es_linea_guiones(l):
+    """True si la línea es básicamente '----' (guiones y espacios)."""
+    s = l.replace(' ', '')
+    if len(s) < 10:
+        return False
+    d = s.count('-')
+    return d >= 10 and d / len(s) >= 0.9
 
-    # 1. Fila de encabezado: la que contiene 'COD_AUX'
-    idx_header = next((i for i, l in enumerate(lineas) if 'COD_AUX' in l), None)
-    if idx_header is None:
-        raise ValueError("No encontré la fila de encabezado con COD_AUX")
-
-    # 2. Fila de guiones (----) que define los anchos de columna
-    idx_guion = None
-    for k in range(idx_header + 1, min(idx_header + 8, len(lineas))):
-        sin_esp = lineas[k].replace(' ', '')
-        if sin_esp and set(sin_esp) <= set('-'):
-            idx_guion = k
-            break
-    if idx_guion is None:
-        raise ValueError("No encontré la fila de guiones (----) para los anchos")
-
-    # 3. Calcular (inicio, fin) de cada columna a partir de los guiones
-    guion = lineas[idx_guion]
-    spans, j, n = [], 0, len(guion)
+def _spans_desde_guiones(linea):
+    """Posiciones (inicio, fin) de cada columna según los bloques de guiones."""
+    spans, j, n = [], 0, len(linea)
     while j < n:
-        if guion[j] == '-':
+        if linea[j] == '-':
             ini = j
-            while j < n and guion[j] == '-':
+            while j < n and linea[j] == '-':
                 j += 1
             spans.append((ini, j))
         else:
             j += 1
-    # La última columna (VALOR) se extiende hasta el final por si el valor es ancho
-    if spans:
-        a, b = spans[-1]
+    if spans:                       # última columna (VALOR) hasta el final
+        a, _ = spans[-1]
         spans[-1] = (a, 100000)
+    return spans
 
-    # 4. Nombres de columna: cortar el encabezado en esos spans
+def _spans_desde_header(header):
+    """Plan B: deduce columnas del encabezado (texto separado por 2+ espacios)."""
+    starts, j, n = [], 0, len(header)
+    while j < n:
+        if header[j] != ' ':
+            if j == 0 or (header[j-1] == ' ' and header[j-2] == ' '):
+                starts.append(j)
+        j += 1
+    spans = []
+    for i, s in enumerate(starts):
+        e = starts[i+1] if i + 1 < len(starts) else 100000
+        spans.append((s, e))
+    return spans
+
+def leer_df(texto):
+    """Lee el reporte de ANCHO FIJO usando la fila de guiones (o el encabezado como plan B)."""
+    lineas = texto.splitlines()
+
+    idx_header = next((i for i, l in enumerate(lineas) if 'COD_AUX' in l), None)
+    if idx_header is None:
+        raise ValueError("No encontré la fila de encabezado con COD_AUX")
+
+    # buscar guiones en TODO el archivo después del encabezado
+    idx_guion = next((k for k in range(idx_header + 1, len(lineas))
+                      if _es_linea_guiones(lineas[k])), None)
+
     header = lineas[idx_header]
+    if idx_guion is not None:
+        spans = _spans_desde_guiones(lineas[idx_guion])
+        inicio_datos = idx_guion + 1
+    else:
+        print("   ⚠ No hallé fila de guiones; uso posiciones del encabezado.")
+        spans = _spans_desde_header(header)
+        inicio_datos = idx_header + 1
+
+    if not spans:
+        raise ValueError("No pude determinar las columnas (ni guiones ni encabezado).")
+
+    # nombres de columna
     cols, vistos = [], {}
     for (a, b) in spans:
-        nombre = header[a:b].strip()
-        if not nombre:
-            nombre = f"col_{a}"
+        nombre = header[a:b].strip() or f"col_{a}"
         if nombre in vistos:
             vistos[nombre] += 1
             nombre = f"{nombre}_{vistos[nombre]}"
@@ -121,17 +145,16 @@ def leer_df(texto):
             vistos[nombre] = 0
         cols.append(nombre)
 
-    # 5. Datos: desde después de los guiones, cortando por spans
+    # datos
     filas = []
-    for l in lineas[idx_guion + 1:]:
+    for l in lineas[inicio_datos:]:
         if not l.strip():
             continue
         filas.append([l[a:b].strip() for (a, b) in spans])
 
     return pd.DataFrame(filas, columns=cols)
 
-print("✅ Funciones de Drive y lectura (ancho fijo) listas")
-
+print("✅ Funciones de Drive y lectura (ancho fijo, robusto) listas")
 # ============================================================
 #  BLOQUE 4: Clasificación de persona y parseo de VALOR
 # ============================================================
@@ -196,6 +219,10 @@ print("✅ Funciones de clasificación listas")
 #  BLOQUE 5: Reporte por cuenta -> 1 Excel
 #  A: Cuenta | B: Naturales | C: Juridicas | D: Vacios
 # ============================================================
+# ============================================================
+#  BLOQUE 5: Reporte por cuenta -> 1 Excel
+#  A: Cuenta | B: Naturales | C: Juridicas | D: Vacios
+# ============================================================
 archivos = listar_txts(ID_CARPETA_DRIVE)
 print(f"Archivos .txt encontrados: {len(archivos)}")
 if not archivos:
@@ -204,7 +231,11 @@ if not archivos:
 frames = []
 for f in archivos:
     print(f" - Leyendo: {f['name']}")
-    df = leer_df(descargar_texto(f['id']))
+    try:
+        df = leer_df(descargar_texto(f['id']))
+    except Exception as e:
+        print(f"   ✗ No se pudo leer ({e}); se omite este archivo.")
+        continue
     df.columns = df.columns.str.strip()
     c_cuenta = resolver_col(df, COL_CUENTA,  "CUENTA-CO")
     c_cod    = resolver_col(df, COL_COD_AUX, "COD_AUX")
@@ -227,7 +258,7 @@ if not frames:
 
 data = pd.concat(frames, ignore_index=True)
 
-# Conservar solo filas con cuenta NUMÉRICA (descarta títulos, encabezados repetidos, totales)
+# Conservar solo filas con cuenta NUMÉRICA (descarta títulos, encabezados repetidos, guiones)
 data = data[data['CUENTA'].str.fullmatch(r'\d+')].copy()
 if data.empty:
     raise SystemExit("No quedaron filas con cuenta numérica. Revisa el archivo.")
@@ -241,7 +272,7 @@ n_raros = int((data['_grupo'] == 'mas_de_10').sum())
 if n_raros:
     print(f"⚠ {n_raros} registros con MÁS de 10 dígitos -> van en columna extra 'Mas_de_10_REVISAR'.")
 
-# ----- Suma (o conteo) de VALOR por cuenta y grupo -----
+# ----- Suma (o conteo) por cuenta y grupo -----
 if TIPO_REPORTE == 'conteo':
     data['_metrica'] = 1
     metrica = '_metrica'
