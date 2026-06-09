@@ -1,429 +1,432 @@
-/*************************************************************
- * SISTEMA DE ALERTAS TRIBUTARIAS - Google Apps Script
- * Revisa diariamente las obligaciones y envía correos
- * cuando faltan exactamente 15, 7 o 3 días para el vencimiento.
- * HISTORICO_ALERTAS queda enriquecido para conectarlo
- * directamente a Looker Studio.
- *************************************************************/
+/***********************************************************************
+ * SISTEMA DE ALERTAS DE VENCIMIENTOS TRIBUTARIOS · DAVIVIENDA
+ * Stack: Google Sheets + Google Apps Script + Gmail (+ Looker Studio)
+ *
+ * Flujo:
+ *   RAW_CARGA (Excel ancho)  --normalizarCatalogo()-->  OBLIGACIONES (largo)
+ *   OBLIGACIONES  --actualizarEstados() / enviarAlertas()-->  correos + HISTORICO
+ *   Correo (botón 1 clic) --doGet()-->  marca "Presentada" en OBLIGACIONES
+ *
+ * Orden de instalación: usa el menú "🔔 Alertas DIAN" (pasos 1 a 5).
+ ***********************************************************************/
 
-/* ============================================================
- * CONSTANTES GLOBALES
- * ========================================================== */
-const HOJA_OBLIGACIONES = "OBLIGACIONES";
-const HOJA_RESPONSABLES = "RESPONSABLES";
-const HOJA_HISTORICO    = "HISTORICO_ALERTAS";
+/* ============================ CONFIGURACIÓN ============================ */
+const CONFIG = {
+  HOJA_RAW:  'RAW_CARGA',
+  HOJA_OBL:  'OBLIGACIONES',
+  HOJA_HIST: 'HISTORICO_ALERTAS',
 
-// Zona horaria de Colombia para todos los cálculos de fechas.
-const ZONA_HORARIA = "America/Bogota";
+  // Sube el logo a tu carpeta "documentacion" en Drive, abre el archivo,
+  // copia el ID (el código que va en la URL después de /d/) y pégalo aquí.
+  LOGO_FILE_ID: 'PEGA_AQUI_EL_ID_DEL_LOGO',
 
-// Nombre que aparece como remitente del correo.
-const REMITENTE_NOMBRE = "Sistema de Alertas Tributarias";
+  // A quién llegan las alertas por defecto y a quién se escala lo crítico.
+  RESPONSABLE_DEFECTO: 'rebeca.pedrozo@davivienda.com',
+  CORREO_ESCALAMIENTO: 'rebeca.pedrozo@davivienda.com',
 
-// Reglas de negocio: días restantes -> tipo de alerta.
-const REGLAS_ALERTA = {
-  15: "Alerta Preventiva",
-  7:  "Alerta Próxima",
-  3:  "Alerta Crítica"
+  UMBRALES: [15, 7, 3],        // días antes del vencimiento en que se avisa
+  UMBRAL_ESCALA: 3,            // a partir de aquí también se notifica a escalamiento
+  REMITENTE: 'Alertas Tributarias · Davivienda',
+  COLOR_DAVIVIENDA: '#ED1C27'
 };
 
-// Colores por tipo de alerta (usados en el HTML del correo).
-const COLOR_ALERTA = {
-  "Alerta Preventiva": "#2563eb", // azul
-  "Alerta Próxima":    "#f59e0b", // ámbar
-  "Alerta Crítica":    "#dc2626"  // rojo
-};
-
-// Índices de columna (base 0) para acceso a los arreglos de datos.
-const COL_OBL = { ID: 0, COMPANIA: 1, NIT: 2, DV: 3, TIPO_DOC: 4, TIPO_OBL: 5, FECHA_VENC: 6 };
-const COL_RESP = { COMPANIA: 0, RESPONSABLE: 1, CORREO: 2 };
-
-// Esquema ENRIQUECIDO de HISTORICO_ALERTAS (lo que conectaremos a Looker).
-// IMPORTANTE: si la hoja tenía el esquema viejo, bórrala y deja solo estos encabezados.
-const HIST_HEADERS = [
-  "FECHA_ENVIO",       // A - fecha/hora real del envío
-  "ANIO_MES_ENVIO",    // B - yyyy-MM, útil para agrupar en Looker
-  "COMPANIA",          // C
-  "NIT",               // D - incluye DV (ej. 900123456-1)
-  "TIPO_OBLIGACION",   // E
-  "FECHA_VENCIMIENTO", // F - fecha real (no texto)
-  "DIAS_RESTANTES",    // G - 15, 7 o 3 según la alerta
-  "TIPO_ALERTA",       // H
-  "RESPONSABLE",       // I
-  "CORREO"             // J
+// Cada fila ancha de RAW_CARGA genera estos eventos (esto es el "unpivot").
+// 'col' = índice de la columna de fecha en RAW_CARGA (empezando en 0).
+const EVENTOS = [
+  { col: 6, tipo: 'Renta',   subtipo: '1a Cuota',           key: 'RENTA-C1',   criticidad: 4 },
+  { col: 5, tipo: 'Renta',   subtipo: 'Declaración',        key: 'RENTA-DECL', criticidad: 5 },
+  { col: 7, tipo: 'Renta',   subtipo: '2da Cuota',          key: 'RENTA-C2',   criticidad: 4 },
+  { col: 8, tipo: 'Renta',   subtipo: '3a Cuota',           key: 'RENTA-C3',   criticidad: 4 },
+  { col: 9, tipo: 'Exógena', subtipo: 'Información exógena', key: 'EXOGENA',    criticidad: 5 }
 ];
+// Columnas de RAW_CARGA: 0:Codigo 1:Compañia 2:NIT 3:DV 4:Perfil
+//                        5:Declaración 6:1aCuota 7:2daCuota 8:3aCuota 9:Exógena
 
-// Índices (base 0) del histórico, usados para validar duplicados al leerlo.
-const COL_HIST = {
-  FECHA_ENVIO: 0, ANIO_MES: 1, COMPANIA: 2, NIT: 3, TIPO_OBL: 4,
-  FECHA_VENC: 5, DIAS_REST: 6, TIPO_ALERTA: 7, RESPONSABLE: 8, CORREO: 9
-};
+const COLS_OBL = ['id_vencimiento','codigo','compania','nit','dv','perfil',
+  'tipo_obligacion','subtipo','fecha_limite','responsable','correo_responsable',
+  'criticidad','multa_estimada','dias_restantes','estado','semaforo','score_riesgo',
+  'ultimo_umbral_enviado','fecha_confirmacion','confirmado_por'];
 
-/* ============================================================
- * FUNCIÓN PRINCIPAL
- * ========================================================== */
-/**
- * Punto de entrada del sistema. Recorre todas las obligaciones,
- * determina cuáles requieren alerta hoy y envía los correos.
- * Esta es la función que debe ejecutar el trigger diario.
- */
-function revisarVencimientos() {
-  try {
-    Logger.log("===== INICIO revisarVencimientos =====");
 
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const hojaObl  = obtenerHoja(ss, HOJA_OBLIGACIONES);
-    const hojaResp = obtenerHoja(ss, HOJA_RESPONSABLES);
-    const hojaHist = obtenerHoja(ss, HOJA_HISTORICO);
-
-    // 0. Asegurar que el histórico tenga los encabezados correctos.
-    asegurarEncabezadosHistorico(hojaHist);
-
-    // 1. Cargar responsables (Mapa: COMPAÑIA normalizada -> {responsable, correo}).
-    const responsables = obtenerResponsables(hojaResp);
-
-    // 2. Cargar el histórico una sola vez en un Set para validación O(1).
-    const clavesEnviadas = cargarClavesHistorico(hojaHist);
-
-    // 3. Leer todas las obligaciones de una sola vez (eficiencia).
-    const datosObl = hojaObl.getDataRange().getValues();
-
-    const filasPendientes = []; // Acumula nuevos registros para escribir en lote.
-    let enviados = 0;
-    let omitidos = 0;
-
-    // Se omite la fila 0 porque es el encabezado.
-    for (let i = 1; i < datosObl.length; i++) {
-      const fila = datosObl[i];
-
-      // Ignorar filas vacías (sin compañía o sin fecha).
-      const compania = String(fila[COL_OBL.COMPANIA] || "").trim();
-      const fechaVenc = aFecha(fila[COL_OBL.FECHA_VENC]);
-      if (!compania || !fechaVenc) {
-        continue;
-      }
-
-      // Calcular días restantes respetando la zona horaria.
-      const diasRestantes = calcularDiasRestantes(fechaVenc);
-
-      // Solo continuar si coincide exactamente con una regla (15, 7 o 3).
-      const tipoAlerta = REGLAS_ALERTA[diasRestantes];
-      if (!tipoAlerta) {
-        continue;
-      }
-
-      const tipoObligacion = String(fila[COL_OBL.TIPO_OBL] || "").trim();
-
-      // Resolver el responsable/correo de la compañía.
-      const datosResp = responsables[normalizar(compania)];
-      if (!datosResp || !esCorreoValido(datosResp.correo)) {
-        Logger.log("OMITIDO (correo inválido o sin responsable): " + compania +
-                   " - " + tipoObligacion);
-        omitidos++;
-        continue;
-      }
-
-      // Construir clave única para validar duplicados.
-      const clave = construirClave(compania, tipoObligacion, fechaVenc, tipoAlerta);
-      if (alertaYaEnviada(clavesEnviadas, clave)) {
-        continue; // Ya se envió esta misma alerta; no duplicar.
-      }
-
-      // Empaquetar todos los datos para el correo y el registro.
-      const nit = String(fila[COL_OBL.NIT] || "").trim();
-      const dv  = String(fila[COL_OBL.DV] || "").trim();
-      const datosAlerta = {
-        compania: compania,
-        nit: nit,
-        dv: dv,
-        nitCompleto: dv ? (nit + "-" + dv) : nit,
-        tipoObligacion: tipoObligacion,
-        fechaVencimiento: fechaVenc,
-        fechaVencimientoTexto: formatearFecha(fechaVenc, "dd/MM/yyyy"),
-        diasRestantes: diasRestantes,
-        tipoAlerta: tipoAlerta,
-        responsable: datosResp.responsable,
-        correo: datosResp.correo
-      };
-
-      // Enviar el correo (aislado en try/catch para no detener el lote).
-      try {
-        enviarCorreoAlerta(datosAlerta);
-        registrarAlerta(datosAlerta, filasPendientes, clavesEnviadas, clave);
-        enviados++;
-        Logger.log("ENVIADO: " + compania + " | " + tipoObligacion +
-                   " | " + tipoAlerta + " | " + datosResp.correo);
-      } catch (errEnvio) {
-        Logger.log("ERROR al enviar a " + datosResp.correo + ": " + errEnvio.message);
-        omitidos++;
-      }
-    }
-
-    // 4. Escribir todos los registros nuevos en una sola operación.
-    escribirHistorico(hojaHist, filasPendientes);
-
-    Logger.log("RESUMEN -> Enviados: " + enviados + " | Omitidos: " + omitidos);
-    Logger.log("===== FIN revisarVencimientos =====");
-
-  } catch (err) {
-    Logger.log("ERROR CRÍTICO en revisarVencimientos: " + err.message + "\n" + err.stack);
-  }
+/* ============================== MENÚ ================================== */
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('🔔 Alertas DIAN')
+    .addItem('1. Crear datos de prueba', 'crearDatosDePrueba')
+    .addItem('2. Normalizar catálogo',   'normalizarCatalogo')
+    .addItem('3. Actualizar estados',    'actualizarEstados')
+    .addItem('4. Enviar alertas (prueba)','enviarAlertas')
+    .addSeparator()
+    .addItem('5. Crear triggers diarios','setupTriggers')
+    .addToUi();
 }
 
-/* ============================================================
- * OBTENER RESPONSABLES
- * ========================================================== */
-/**
- * Lee la hoja RESPONSABLES y devuelve un objeto/mapa
- * indexado por nombre de compañía normalizado para búsqueda rápida.
- */
-function obtenerResponsables(hojaResp) {
-  const mapa = {};
-  const datos = hojaResp.getDataRange().getValues();
 
-  for (let i = 1; i < datos.length; i++) {
-    const compania = String(datos[i][COL_RESP.COMPANIA] || "").trim();
-    if (!compania) {
-      continue; // Ignorar filas vacías.
-    }
-    mapa[normalizar(compania)] = {
-      responsable: String(datos[i][COL_RESP.RESPONSABLE] || "").trim(),
-      correo: String(datos[i][COL_RESP.CORREO] || "").trim()
+/* ===================== 1. DATOS DE PRUEBA ============================= */
+function crearDatosDePrueba() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const raw = obtenerHoja_(ss, CONFIG.HOJA_RAW);
+  raw.clear();
+  const enc = ['Vencimientos','Compañia','NIT','DV','P',
+               'Declaración','1a Cuota','2da Cuota','3a Cuota','Exógena'];
+  const datos = [
+    enc,
+    // --- Tus dos compañías reales ---
+    ['DAV061','FIDUCIARIA DAVIVIENDA','800182281','1','GC','13 abr 2026','10 feb 2026','13 abr 2026','10 jun 2026','28 abr 2026'],
+    ['DAV113','EDICIONES GAMMA S.A.','860062001','1','GC','13 abr 2026','10 feb 2026','13 abr 2026','10 jun 2026','28 abr 2026'],
+    // --- Cinco de prueba con fechas variadas (rojo / amarillo / verde) ---
+    ['DAV205','INVERSIONES EL ROBLE S.A.S.','830111222','7','GC','12 jun 2026','11 feb 2026','12 jun 2026','24 jul 2026','30 jun 2026'],
+    ['DAV310','COMERCIAL ANDINA LTDA','900445566','3','GC','19 jun 2026','09 feb 2026','19 jun 2026','22 jul 2026','14 jul 2026'],
+    ['DAV418','TRANSPORTES DEL SUR S.A.','860524654','5','GC','30 jun 2026','12 feb 2026','30 jun 2026','28 jul 2026','24 jul 2026'],
+    ['DAV522','CONSTRUCTORA NORTE S.A.S.','901223344','8','GC','24 jun 2026','11 feb 2026','24 jun 2026','27 jul 2026','31 jul 2026'],
+    ['DAV630','AGRO EXPORT COLOMBIA S.A.','830998877','2','GC','03 jul 2026','13 feb 2026','03 jul 2026','29 jul 2026','21 jul 2026']
+  ];
+  raw.getRange(1, 1, datos.length, enc.length).setValues(datos);
+  raw.getRange(1, 1, 1, enc.length).setFontWeight('bold');
+  raw.setFrozenRows(1);
+  ss.toast(datos.length - 1 + ' compañías cargadas en RAW_CARGA', 'Listo', 5);
+}
+
+
+/* ===================== 2. NORMALIZAR (unpivot) ======================= */
+function normalizarCatalogo() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const raw = ss.getSheetByName(CONFIG.HOJA_RAW);
+  if (!raw) throw new Error('Falta la hoja ' + CONFIG.HOJA_RAW + ' (corre el paso 1).');
+
+  const data  = raw.getDataRange().getValues();
+  const filas = data.slice(1).filter(r => String(r[0]).trim() !== '');
+  const previos = leerEstadoPrevio_(ss);   // conserva lo que ya editaste/confirmaste
+
+  const salida = [COLS_OBL];
+  filas.forEach(r => {
+    const codigo = r[0], compania = r[1], nit = r[2], dv = r[3], perfil = r[4];
+    EVENTOS.forEach(ev => {
+      const fecha = parseFecha_(r[ev.col]);
+      if (!fecha) return;                   // sin fecha no se crea el evento
+      const id   = codigo + '-' + ev.key;
+      const p    = previos[id] || {};
+      salida.push([
+        id, codigo, compania, nit, dv, perfil,
+        ev.tipo, ev.subtipo, fecha,
+        p.responsable || CONFIG.RESPONSABLE_DEFECTO,
+        p.correo      || CONFIG.RESPONSABLE_DEFECTO,
+        p.criticidad  || ev.criticidad,
+        p.multa       || 0,
+        '',                                  // dias_restantes  (lo calcula el paso 3)
+        p.estado || 'Pendiente',
+        '',                                  // semaforo
+        '',                                  // score_riesgo
+        p.umbral || '',
+        p.fconf  || '',
+        p.confpor|| ''
+      ]);
+    });
+  });
+
+  const obl = obtenerHoja_(ss, CONFIG.HOJA_OBL);
+  obl.clearContents();
+  obl.getRange(1, 1, salida.length, COLS_OBL.length).setValues(salida);
+  obl.getRange(1, 1, 1, COLS_OBL.length).setFontWeight('bold');
+  obl.setFrozenRows(1);
+  actualizarEstados();
+  ss.toast((salida.length - 1) + ' vencimientos en OBLIGACIONES', 'Catálogo normalizado', 5);
+}
+
+function leerEstadoPrevio_(ss) {
+  const map = {};
+  const obl = ss.getSheetByName(CONFIG.HOJA_OBL);
+  if (!obl || obl.getLastRow() < 2) return map;
+  const vals = obl.getDataRange().getValues();
+  const h = vals[0], idx = n => h.indexOf(n);
+  for (let i = 1; i < vals.length; i++) {
+    const row = vals[i], id = row[idx('id_vencimiento')];
+    if (!id) continue;
+    map[id] = {
+      responsable: row[idx('responsable')],
+      correo:      row[idx('correo_responsable')],
+      criticidad:  row[idx('criticidad')],
+      multa:       row[idx('multa_estimada')],
+      estado:      row[idx('estado')],
+      umbral:      row[idx('ultimo_umbral_enviado')],
+      fconf:       row[idx('fecha_confirmacion')],
+      confpor:     row[idx('confirmado_por')]
     };
   }
-  return mapa;
+  return map;
 }
 
-/* ============================================================
- * CALCULAR DÍAS RESTANTES
- * ========================================================== */
-/**
- * Calcula la diferencia en días calendario entre hoy y la fecha
- * de vencimiento, normalizando ambas a medianoche en la zona horaria
- * configurada para evitar errores por horas o DST.
- */
-function calcularDiasRestantes(fechaVencimiento) {
-  const hoyStr = formatearFecha(new Date(), "yyyy-MM-dd");
-  const venStr = formatearFecha(fechaVencimiento, "yyyy-MM-dd");
-
-  const hoyUTC = new Date(hoyStr + "T00:00:00Z");
-  const venUTC = new Date(venStr + "T00:00:00Z");
-
-  const MS_POR_DIA = 24 * 60 * 60 * 1000;
-  return Math.round((venUTC - hoyUTC) / MS_POR_DIA);
+// Acepta una fecha real o el texto "13 abr 2026" / "13 abril 2026".
+function parseFecha_(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  if (Object.prototype.toString.call(v) === '[object Date]') return v;
+  const s = String(v).trim().toLowerCase().replace(/\./g, '');
+  const partes = s.split(/\s+/);
+  if (partes.length < 3) return null;
+  const meses = { ene:0, feb:1, mar:2, abr:3, may:4, jun:5,
+                  jul:6, ago:7, sep:8, set:8, oct:9, nov:10, dic:11 };
+  const dia  = parseInt(partes[0], 10);
+  const mes  = meses[partes[1].substring(0, 3)];
+  const anio = parseInt(partes[2], 10);
+  if (isNaN(dia) || mes === undefined || isNaN(anio)) return null;
+  return new Date(anio, mes, dia);
 }
 
-/* ============================================================
- * VALIDAR DUPLICADOS
- * ========================================================== */
-/**
- * Indica si una alerta ya fue registrada previamente.
- */
-function alertaYaEnviada(clavesEnviadas, clave) {
-  return clavesEnviadas.has(clave);
+
+/* ===================== 3. ESTADOS Y SEMÁFORO ========================= */
+function actualizarEstados() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const obl = ss.getSheetByName(CONFIG.HOJA_OBL);
+  if (!obl || obl.getLastRow() < 2) return;
+  const vals = obl.getDataRange().getValues();
+  const h = vals[0], idx = n => h.indexOf(n);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+  for (let i = 1; i < vals.length; i++) {
+    const row = vals[i];
+    const fecha = row[idx('fecha_limite')];
+    if (!(fecha instanceof Date)) continue;
+    const dias = Math.round((fecha.getTime() - hoy.getTime()) / 86400000);
+    row[idx('dias_restantes')] = dias;
+
+    let estado = row[idx('estado')];
+    if (estado !== 'Presentada') estado = dias < 0 ? 'Vencida' : 'Pendiente';
+    row[idx('estado')]      = estado;
+    row[idx('semaforo')]    = semaforo_(estado, dias);
+    row[idx('score_riesgo')]= scoreRiesgo_(row[idx('criticidad')], dias, estado);
+  }
+  obl.getRange(1, 1, vals.length, h.length).setValues(vals);
 }
 
-/**
- * Carga el histórico existente en un Set de claves únicas
- * para validar duplicados en O(1).
- */
-function cargarClavesHistorico(hojaHist) {
-  const claves = new Set();
-  const datos = hojaHist.getDataRange().getValues();
+function semaforo_(estado, dias) {
+  if (estado === 'Presentada') return '✅ Presentada';
+  if (estado === 'Vencida')    return '⛔ Vencida';
+  if (dias <= 3)  return '🔴 Crítico';
+  if (dias <= 15) return '🟡 Próximo';
+  return '🟢 A tiempo';
+}
 
-  for (let i = 1; i < datos.length; i++) {
-    const compania   = datos[i][COL_HIST.COMPANIA];
-    const tipoObl    = datos[i][COL_HIST.TIPO_OBL];
-    const fechaVenc  = aFecha(datos[i][COL_HIST.FECHA_VENC]);
-    const tipoAlerta = datos[i][COL_HIST.TIPO_ALERTA];
+function scoreRiesgo_(criticidad, dias, estado) {
+  if (estado === 'Presentada') return 0;
+  const prox = dias < 0 ? 6 : dias <= 3 ? 5 : dias <= 7 ? 4 : dias <= 15 ? 3 : dias <= 30 ? 2 : 1;
+  return (Number(criticidad) || 1) * prox;
+}
 
-    if (!compania || !fechaVenc) {
-      continue;
+
+/* ===================== 4. ENVÍO DE ALERTAS ============================ */
+function enviarAlertas() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const obl = ss.getSheetByName(CONFIG.HOJA_OBL);
+  if (!obl || obl.getLastRow() < 2) return;
+  const vals = obl.getDataRange().getValues();
+  const h = vals[0], idx = n => h.indexOf(n);
+  let cambios = false;
+
+  for (let i = 1; i < vals.length; i++) {
+    const row = vals[i];
+    if (row[idx('estado')] !== 'Pendiente') continue;
+    const dias   = Number(row[idx('dias_restantes')]);
+    const umbral = umbralAplicable_(dias);
+    if (umbral === null) continue;
+
+    const ultimo = row[idx('ultimo_umbral_enviado')];
+    if (ultimo !== '' && Number(ultimo) <= umbral) continue; // ese umbral ya se avisó
+
+    const d = {
+      id:       row[idx('id_vencimiento')],
+      compania: row[idx('compania')],
+      nit:      row[idx('nit')] + '-' + row[idx('dv')],
+      tipo:     row[idx('tipo_obligacion')],
+      subtipo:  row[idx('subtipo')],
+      fecha:    Utilities.formatDate(row[idx('fecha_limite')], Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+      dias:     dias,
+      umbral:   umbral
+    };
+    const correo = row[idx('correo_responsable')] || CONFIG.RESPONSABLE_DEFECTO;
+    enviarCorreoAlerta_(correo, d, false);
+    registrarHistorico_(ss, d, correo, 'enviada');
+
+    if (dias <= CONFIG.UMBRAL_ESCALA && CONFIG.CORREO_ESCALAMIENTO &&
+        CONFIG.CORREO_ESCALAMIENTO !== correo) {
+      enviarCorreoAlerta_(CONFIG.CORREO_ESCALAMIENTO, d, true);
+      registrarHistorico_(ss, d, CONFIG.CORREO_ESCALAMIENTO, 'escalada');
     }
-    claves.add(construirClave(compania, tipoObl, fechaVenc, tipoAlerta));
+    row[idx('ultimo_umbral_enviado')] = umbral;
+    cambios = true;
   }
-  return claves;
+  if (cambios) obl.getRange(1, 1, vals.length, h.length).setValues(vals);
 }
 
-/* ============================================================
- * REGISTRAR ALERTA
- * ========================================================== */
-/**
- * Prepara una nueva fila ENRIQUECIDA para el histórico y la agrega
- * al lote pendiente. Escribe fechas reales para que Looker las
- * interprete como fechas y no como texto.
- */
-function registrarAlerta(datos, filasPendientes, clavesEnviadas, clave) {
-  const ahora = new Date();
-  const fila = [
-    ahora,                                   // A FECHA_ENVIO (fecha/hora real)
-    formatearFecha(ahora, "yyyy-MM"),        // B ANIO_MES_ENVIO
-    datos.compania,                          // C COMPANIA
-    datos.nitCompleto,                       // D NIT (con DV)
-    datos.tipoObligacion,                    // E TIPO_OBLIGACION
-    datos.fechaVencimiento,                  // F FECHA_VENCIMIENTO (fecha real)
-    datos.diasRestantes,                     // G DIAS_RESTANTES
-    datos.tipoAlerta,                        // H TIPO_ALERTA
-    datos.responsable,                       // I RESPONSABLE
-    datos.correo                             // J CORREO
-  ];
-  filasPendientes.push(fila);
-  clavesEnviadas.add(clave); // Evita doble envío en la misma corrida.
-}
-
-/**
- * Escribe todas las filas nuevas en HISTORICO_ALERTAS en una sola
- * operación (eficiente para grandes volúmenes).
- */
-function escribirHistorico(hojaHist, filas) {
-  if (!filas || filas.length === 0) {
-    return;
-  }
-  const inicio = hojaHist.getLastRow() + 1;
-  hojaHist.getRange(inicio, 1, filas.length, filas[0].length).setValues(filas);
-}
-
-/**
- * Si el histórico está vacío, escribe la fila de encabezados.
- * No toca los datos si ya existen.
- */
-function asegurarEncabezadosHistorico(hojaHist) {
-  if (hojaHist.getLastRow() === 0) {
-    hojaHist.getRange(1, 1, 1, HIST_HEADERS.length).setValues([HIST_HEADERS]);
-    Logger.log("Encabezados de HISTORICO_ALERTAS creados.");
-  }
-}
-
-/* ============================================================
- * ENVIAR CORREO
- * ========================================================== */
-/**
- * Envía el correo de alerta en formato HTML profesional.
- */
-function enviarCorreoAlerta(datos) {
-  const asunto = "[ALERTA TRIBUTARIA] " + datos.tipoObligacion + " - " + datos.compania;
-  const cuerpoHtml = construirCuerpoHTML(datos);
-
-  MailApp.sendEmail({
-    to: datos.correo,
-    subject: asunto,
-    htmlBody: cuerpoHtml,
-    name: REMITENTE_NOMBRE
-  });
-}
-
-/**
- * Construye el cuerpo HTML del correo con una tabla informativa.
- */
-function construirCuerpoHTML(datos) {
-  const color = COLOR_ALERTA[datos.tipoAlerta] || "#374151";
-
-  return ''
-    + '<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;'
-    + 'border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">'
-    +   '<div style="background:' + color + ';color:#ffffff;padding:18px 24px;">'
-    +     '<h2 style="margin:0;font-size:18px;">' + datos.tipoAlerta + '</h2>'
-    +     '<p style="margin:4px 0 0;font-size:13px;opacity:.9;">Alerta Tributaria Automática</p>'
-    +   '</div>'
-    +   '<div style="padding:24px;color:#111827;font-size:14px;">'
-    +     '<p>Estimado(a) <strong>' + (datos.responsable || "responsable") + '</strong>,</p>'
-    +     '<p>Le informamos que la siguiente obligación está próxima a vencer. '
-    +     'Faltan <strong>' + datos.diasRestantes + ' día(s)</strong> para su vencimiento.</p>'
-    +     '<table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px;">'
-    +       fila("Compañía", datos.compania)
-    +       fila("NIT", datos.nitCompleto)
-    +       fila("Tipo de obligación", datos.tipoObligacion)
-    +       fila("Fecha de vencimiento", datos.fechaVencimientoTexto)
-    +       fila("Días restantes", String(datos.diasRestantes))
-    +       fila("Tipo de alerta", datos.tipoAlerta)
-    +     '</table>'
-    +     '<p style="margin-top:24px;color:#6b7280;font-size:12px;">'
-    +     'Este es un mensaje automático generado por el Sistema de Alertas Tributarias. '
-    +     'Por favor no responda a este correo.</p>'
-    +   '</div>'
-    + '</div>';
-
-  function fila(etiqueta, valor) {
-    return '<tr>'
-      + '<td style="padding:8px 12px;border:1px solid #e5e7eb;background:#f9fafb;'
-      + 'font-weight:bold;width:45%;">' + etiqueta + '</td>'
-      + '<td style="padding:8px 12px;border:1px solid #e5e7eb;">' + valor + '</td>'
-      + '</tr>';
-  }
-}
-
-/* ============================================================
- * FUNCIÓN DE PRUEBA MANUAL
- * ========================================================== */
-/**
- * Ejecuta el flujo completo de forma manual desde el editor.
- * Importante: SÍ envía correos reales si hay coincidencias.
- */
-function pruebaAlertas() {
-  Logger.log(">>> Ejecutando prueba manual de alertas...");
-  revisarVencimientos();
-  Logger.log(">>> Prueba finalizada. Revise el menú Ejecuciones / Logs.");
-}
-
-/* ============================================================
- * UTILIDADES AUXILIARES
- * ========================================================== */
-/** Obtiene una hoja por nombre o lanza un error claro si no existe. */
-function obtenerHoja(ss, nombre) {
-  const hoja = ss.getSheetByName(nombre);
-  if (!hoja) {
-    throw new Error("No se encontró la hoja: " + nombre);
-  }
-  return hoja;
-}
-
-/** Construye la clave única para validar duplicados. */
-function construirClave(compania, tipoObligacion, fechaVencDate, tipoAlerta) {
-  const fechaKey = formatearFecha(fechaVencDate, "yyyy-MM-dd");
-  return [
-    normalizar(compania),
-    normalizar(tipoObligacion),
-    fechaKey,
-    normalizar(tipoAlerta)
-  ].join("||");
-}
-
-/** Normaliza texto para comparaciones (sin espacios extra, en mayúsculas). */
-function normalizar(valor) {
-  return String(valor || "").trim().toUpperCase();
-}
-
-/** Formatea una fecha usando la zona horaria configurada. */
-function formatearFecha(fecha, patron) {
-  return Utilities.formatDate(fecha, ZONA_HORARIA, patron);
-}
-
-/**
- * Convierte un valor de celda a objeto Date.
- * Acepta objetos Date o cadenas en formato dd/MM/yyyy.
- */
-function aFecha(valor) {
-  if (valor instanceof Date && !isNaN(valor.getTime())) {
-    return valor;
-  }
-  if (typeof valor === "string") {
-    const s = valor.trim();
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // dd/MM/yyyy
-    if (m) {
-      return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
-    }
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) {
-      return d;
-    }
-  }
+function umbralAplicable_(dias) {
+  if (dias < 0) return null;
+  const us = CONFIG.UMBRALES.slice().sort((a, b) => a - b); // [3,7,15]
+  for (const u of us) if (dias <= u) return u;
   return null;
 }
 
-/** Valida un correo electrónico con una expresión regular básica. */
-function esCorreoValido(correo) {
-  if (!correo) {
-    return false;
+
+/* ===================== CORREO PROFESIONAL ============================ */
+function enviarCorreoAlerta_(destinatario, d, esEscalamiento) {
+  const url    = urlConfirmacion_(d.id);
+  const html   = plantillaCorreo_(d, url, esEscalamiento);
+  const asunto = (esEscalamiento ? '[ESCALAMIENTO] ' : '') +
+    'Vencimiento ' + d.tipo + ' · ' + d.subtipo + ' · ' + d.compania +
+    ' (' + d.dias + ' día' + (d.dias === 1 ? '' : 's') + ')';
+
+  const opciones = { htmlBody: html, name: CONFIG.REMITENTE };
+
+  // Logo embebido (solo si ya pegaste el ID). Si falla, el correo igual se envía.
+  try {
+    if (CONFIG.LOGO_FILE_ID && CONFIG.LOGO_FILE_ID.indexOf('PEGA') === -1) {
+      const blob = DriveApp.getFileById(CONFIG.LOGO_FILE_ID).getBlob().setName('logo');
+      opciones.inlineImages = { logoDavivienda: blob };
+    }
+  } catch (e) {
+    Logger.log('No se pudo cargar el logo: ' + e);
   }
-  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return regex.test(String(correo).trim());
+  GmailApp.sendEmail(destinatario, asunto, textoPlano_(d, url), opciones);
+}
+
+function plantillaCorreo_(d, url, esc) {
+  const rojo   = CONFIG.COLOR_DAVIVIENDA;
+  const urg    = d.dias <= 3 ? '#C0392B' : (d.dias <= 7 ? '#E67E22' : '#D4AC0D');
+  const urgTxt = d.dias <= 3 ? 'CRÍTICO' : (d.dias <= 7 ? 'URGENTE' : 'PRÓXIMO');
+  const usaLogo = CONFIG.LOGO_FILE_ID && CONFIG.LOGO_FILE_ID.indexOf('PEGA') === -1;
+  const logo = usaLogo
+    ? '<img src="cid:logoDavivienda" alt="Davivienda" height="36" style="display:block;border:0;outline:none;">'
+    : '<span style="color:#ffffff;font-size:22px;font-weight:bold;font-family:Arial,sans-serif;">Davivienda</span>';
+  const banner = esc
+    ? '<tr><td style="background:#7B1113;color:#fff;font-family:Arial,sans-serif;font-size:13px;padding:9px 24px;">Alerta escalada · obligación muy próxima a vencer</td></tr>'
+    : '';
+
+  return '' +
+  '<div style="background:#f2f3f5;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">' +
+    '<table align="center" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e6e6e6;">' +
+      '<tr><td style="background:' + rojo + ';padding:18px 24px;">' + logo + '</td></tr>' +
+      banner +
+      '<tr><td style="padding:28px 24px 6px 24px;">' +
+        '<span style="background:' + urg + ';color:#fff;font-size:12px;font-weight:bold;padding:5px 13px;border-radius:20px;letter-spacing:.5px;">' +
+          urgTxt + ' · ' + d.dias + ' DÍA' + (d.dias === 1 ? '' : 'S') + '</span>' +
+        '<h1 style="font-size:20px;color:#222;margin:16px 0 4px;">Vencimiento próximo ante la DIAN</h1>' +
+        '<p style="font-size:14px;color:#666;margin:0 0 18px;line-height:1.5;">Gestiona esta obligación antes de la fecha límite para evitar sanciones.</p>' +
+      '</td></tr>' +
+      '<tr><td style="padding:0 24px;">' +
+        '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;color:#333;">' +
+          fila_('Compañía',       d.compania) +
+          fila_('NIT',            d.nit) +
+          fila_('Obligación',     d.tipo + ' · ' + d.subtipo) +
+          fila_('Fecha límite',   d.fecha) +
+          fila_('Días restantes', d.dias) +
+        '</table>' +
+      '</td></tr>' +
+      '<tr><td align="center" style="padding:26px 24px 30px;">' +
+        '<a href="' + url + '" style="background:' + rojo + ';color:#fff;text-decoration:none;font-size:15px;font-weight:bold;padding:13px 32px;border-radius:6px;display:inline-block;">Marcar como presentada</a>' +
+        '<p style="font-size:12px;color:#999;margin:14px 0 0;">Al confirmar dejarás de recibir alertas de esta obligación.</p>' +
+      '</td></tr>' +
+      '<tr><td style="background:#fafafa;border-top:1px solid #eee;padding:16px 24px;">' +
+        '<p style="font-size:11px;color:#999;margin:0;line-height:1.5;">Mensaje automático del Sistema de Alertas de Vencimientos Tributarios. Por favor no respondas a este correo.</p>' +
+      '</td></tr>' +
+    '</table>' +
+  '</div>';
+}
+
+function fila_(k, v) {
+  return '<tr>' +
+    '<td style="padding:9px 0;border-bottom:1px solid #eee;color:#888;width:140px;">' + k + '</td>' +
+    '<td style="padding:9px 0;border-bottom:1px solid #eee;font-weight:bold;">' + v + '</td>' +
+  '</tr>';
+}
+
+function textoPlano_(d, url) {
+  return 'Vencimiento próximo ante la DIAN\n\n' +
+    d.tipo + ' - ' + d.subtipo + '\n' +
+    d.compania + ' (' + d.nit + ')\n' +
+    'Fecha límite: ' + d.fecha + '\n' +
+    'Días restantes: ' + d.dias + '\n\n' +
+    'Marcar como presentada: ' + url;
+}
+
+
+/* ===================== LOOP: CONFIRMACIÓN (Web App) ================== */
+function doGet(e) {
+  const id     = e && e.parameter ? e.parameter.id : '';
+  const accion = e && e.parameter ? e.parameter.action : '';
+  if (accion === 'confirmar' && id) {
+    const ok = confirmarPresentacion_(id);
+    return paginaConfirmacion_(ok, id);
+  }
+  return HtmlService.createHtmlOutput('<p style="font-family:Arial">Solicitud no válida.</p>');
+}
+
+function confirmarPresentacion_(id) {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const obl = ss.getSheetByName(CONFIG.HOJA_OBL);
+  const vals = obl.getDataRange().getValues();
+  const h = vals[0], idx = n => h.indexOf(n);
+  let usuario = '';
+  try { usuario = Session.getActiveUser().getEmail(); } catch (e) {}
+
+  for (let i = 1; i < vals.length; i++) {
+    if (vals[i][idx('id_vencimiento')] === id) {
+      obl.getRange(i + 1, idx('estado') + 1).setValue('Presentada');
+      obl.getRange(i + 1, idx('semaforo') + 1).setValue('✅ Presentada');
+      obl.getRange(i + 1, idx('score_riesgo') + 1).setValue(0);
+      obl.getRange(i + 1, idx('fecha_confirmacion') + 1).setValue(new Date());
+      obl.getRange(i + 1, idx('confirmado_por') + 1).setValue(usuario || 'vía correo');
+      registrarHistorico_(ss, {
+        id: id, compania: vals[i][idx('compania')], tipo: vals[i][idx('tipo_obligacion')],
+        subtipo: vals[i][idx('subtipo')]
+      }, usuario || 'vía correo', 'confirmada');
+      return true;
+    }
+  }
+  return false;
+}
+
+function urlConfirmacion_(id) {
+  return ScriptApp.getService().getUrl() + '?action=confirmar&id=' + encodeURIComponent(id);
+}
+
+function paginaConfirmacion_(ok, id) {
+  const rojo = CONFIG.COLOR_DAVIVIENDA;
+  const msg  = ok
+    ? '<h2 style="color:#1d9e75;margin:0 0 8px;">¡Listo!</h2><p>La obligación <b>' + id + '</b> quedó marcada como <b>presentada</b>. No recibirás más alertas de este vencimiento.</p>'
+    : '<h2 style="color:#C0392B;margin:0 0 8px;">No encontrada</h2><p>No se encontró la obligación <b>' + id + '</b>.</p>';
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:Arial;max-width:460px;margin:60px auto;text-align:center;border:1px solid #eee;border-radius:10px;overflow:hidden;">' +
+      '<div style="background:' + rojo + ';padding:16px;color:#fff;font-weight:bold;font-size:18px;">Davivienda · Alertas Tributarias</div>' +
+      '<div style="padding:30px 26px;color:#333;">' + msg + '</div>' +
+    '</div>'
+  );
+}
+
+
+/* ===================== HISTÓRICO Y UTILIDADES ======================== */
+function registrarHistorico_(ss, d, destinatario, accion) {
+  const hist = obtenerHoja_(ss, CONFIG.HOJA_HIST);
+  if (hist.getLastRow() === 0) {
+    hist.appendRow(['timestamp','id_vencimiento','compania','tipo','subtipo',
+                    'fecha_limite','dias_restantes','umbral','destinatario','accion']);
+    hist.getRange(1, 1, 1, 10).setFontWeight('bold');
+    hist.setFrozenRows(1);
+  }
+  hist.appendRow([new Date(), d.id, d.compania || '', d.tipo || '', d.subtipo || '',
+    d.fecha || '', (d.dias === undefined ? '' : d.dias),
+    (d.umbral === undefined ? '' : d.umbral), destinatario, accion]);
+}
+
+function obtenerHoja_(ss, nombre) {
+  return ss.getSheetByName(nombre) || ss.insertSheet(nombre);
+}
+
+
+/* ===================== 5. TRIGGERS DIARIOS =========================== */
+function setupTriggers() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (['actualizarEstados', 'enviarAlertas'].indexOf(t.getHandlerFunction()) >= 0) {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('actualizarEstados').timeBased().everyDays(1).atHour(6).create();
+  ScriptApp.newTrigger('enviarAlertas').timeBased().everyDays(1).atHour(7).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers diarios creados: estados 6am, alertas 7am', 'Listo', 6);
 }
