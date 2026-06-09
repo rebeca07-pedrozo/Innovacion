@@ -18,12 +18,6 @@ print("✅ Conectado a Drive")
 # ============================================================
 ID_CARPETA_DRIVE = "PEGA_AQUI_EL_ID_DE_TU_CARPETA"   # <-- ID de la carpeta de Drive
 
-# Nombres de columnas tal como vienen en el .txt (ajusta solo si cambian)
-COL_CUENTA  = "CUENTA-CO"
-COL_COD_AUX = "COD_AUX"
-COL_IDENT   = "# IDENTIFICACION"
-COL_VALOR   = "VALOR"
-
 # ----- ¿SUMAR VALOR o CONTAR registros? (defínelo con tu compañera) -----
 TIPO_REPORTE = "suma"      # opciones: "suma"  ó  "conteo"
 # TIPO_REPORTE = "conteo"
@@ -31,7 +25,8 @@ TIPO_REPORTE = "suma"      # opciones: "suma"  ó  "conteo"
 print("✅ Configuración cargada")
 
 # ============================================================
-#  BLOQUE 3: Funciones de Drive + lectura del .txt (ANCHO FIJO)
+#  BLOQUE 3: Funciones de Drive + lectura del .txt
+#  (detecta solo si es ANCHO FIJO o TABS exportado por Excel)
 # ============================================================
 def listar_txts(carpeta_id):
     """Lista .txt incluyendo Unidades Compartidas, con paginación."""
@@ -40,10 +35,8 @@ def listar_txts(carpeta_id):
         res = service.files().list(
             q=f"'{carpeta_id}' in parents and trashed=false",
             fields="nextPageToken, files(id,name)",
-            pageSize=1000,
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-            pageToken=token
+            pageSize=1000, supportsAllDrives=True,
+            includeItemsFromAllDrives=True, pageToken=token
         ).execute()
         archivos += res.get('files', [])
         token = res.get('nextPageToken')
@@ -87,69 +80,70 @@ def subir_archivo(carpeta_id, nombre, data_bytes, mimetype, reemplazar=True):
                            media_body=media, fields='id', supportsAllDrives=True).execute()
 
 def _es_linea_guiones(l):
-    """True si la línea es la fila de guiones (----)."""
-    s = l.replace(' ', '')
+    s = l.replace(' ', '').replace('\t', '')
     return len(s) >= 10 and s.count('-') / len(s) >= 0.9
 
-def leer_df(texto):
-    """Lee el reporte de ANCHO FIJO usando la fila de guiones para cortar las columnas."""
+def leer_registros(texto):
+    """Devuelve DataFrame con CUENTA, COD_AUX, IDENT, VALOR.
+       CUENTA y COD_AUX se anclan al inicio; VALOR e IDENT al final
+       (así funciona aunque Excel deje columnas fantasma)."""
     lineas = texto.splitlines()
     idx_header = next((i for i, l in enumerate(lineas) if 'COD_AUX' in l), None)
     if idx_header is None:
-        raise ValueError("No encontré la fila de encabezado con COD_AUX")
+        raise ValueError("No encontré encabezado con COD_AUX")
+    header = lineas[idx_header]
     idx_guion = next((k for k in range(idx_header + 1, len(lineas))
                       if _es_linea_guiones(lineas[k])), None)
-    if idx_guion is None:
-        raise ValueError("No encontré la fila de guiones (----)")
+    es_tab = '\t' in header
 
-    # spans (inicio, fin) de cada columna según los bloques de guiones
-    g = lineas[idx_guion]; spans = []; j = 0; n = len(g)
-    while j < n:
-        if g[j] == '-':
-            ini = j
-            while j < n and g[j] == '-':
+    if es_tab:
+        hcols = [c.strip() for c in header.split('\t')]
+        spans = None
+    else:
+        if idx_guion is None:
+            raise ValueError("Sin fila de guiones (----) para ancho fijo")
+        g = lineas[idx_guion]; spans = []; j = 0; n = len(g)
+        while j < n:
+            if g[j] == '-':
+                ini = j
+                while j < n and g[j] == '-': j += 1
+                spans.append((ini, j))
+            else:
                 j += 1
-            spans.append((ini, j))
+        spans[-1] = (spans[-1][0], 100000)
+        hcols = [header[a:b].strip() for (a, b) in spans]
+
+    idx_cuenta = next((i for i, c in enumerate(hcols) if 'CUENTA-CO' in c.upper()), 1)
+    idx_cod    = next((i for i, c in enumerate(hcols) if c.upper() == 'COD_AUX'), 9)
+
+    inicio = (idx_guion + 1) if idx_guion is not None else (idx_header + 1)
+    out = []
+    for l in lineas[inicio:]:
+        if not l.strip():
+            continue
+        if es_tab:
+            campos = [p.strip() for p in l.split('\t')]
+            while campos and campos[-1] == '':
+                campos.pop()
         else:
-            j += 1
-    spans[-1] = (spans[-1][0], 100000)   # última columna (VALOR) hasta el final
+            campos = [l[a:b].strip() for (a, b) in spans]
+        if len(campos) <= idx_cod:   # título o pie de página -> descartar
+            continue
+        out.append({
+            'CUENTA':  campos[idx_cuenta],
+            'COD_AUX': campos[idx_cod],
+            'IDENT':   campos[-2] if len(campos) >= 2 else '',
+            'VALOR':   campos[-1],
+        })
+    return pd.DataFrame(out)
 
-    # nombres de columna
-    header = lineas[idx_header]; cols = []; vistos = {}
-    for (a, b) in spans:
-        nombre = header[a:b].strip() or f"col_{a}"
-        if nombre in vistos:
-            vistos[nombre] += 1
-            nombre = f"{nombre}_{vistos[nombre]}"
-        else:
-            vistos[nombre] = 0
-        cols.append(nombre)
-
-    # datos
-    filas = [[l[a:b].strip() for (a, b) in spans]
-             for l in lineas[idx_guion + 1:] if l.strip()]
-    return pd.DataFrame(filas, columns=cols)
-
-print("✅ Bloque 3 listo (Drive + lectura ancho fijo)")
-
+print("✅ Bloque 3 listo (lectura ancho fijo + tabs)")
 
 # ============================================================
 #  BLOQUE 4: Clasificación de persona y parseo de VALOR
 # ============================================================
-def resolver_col(df, objetivo, palabra_clave=None):
-    if objetivo in df.columns:
-        return objetivo
-    norm = {c.strip().upper(): c for c in df.columns}
-    if objetivo.strip().upper() in norm:
-        return norm[objetivo.strip().upper()]
-    clave = (palabra_clave or objetivo).strip().upper()
-    cands = [c for c in df.columns if clave in c.strip().upper()]
-    if cands:
-        return cands[0]
-    return None
-
 def _digitos(v):
-    """Deja solo dígitos y QUITA los ceros de la izquierda (relleno del reporte)."""
+    """Solo dígitos y SIN ceros a la izquierda (relleno del reporte)."""
     return re.sub(r'\D', '', '' if pd.isna(v) else str(v)).lstrip('0')
 
 def parse_valor(v):
@@ -186,7 +180,6 @@ def clasificar_persona(cod_aux, ident):
 
 print("✅ Bloque 4 listo (clasificación)")
 
-
 # ============================================================
 #  BLOQUE 5: Reporte por cuenta -> 1 Excel
 #  A: Cuenta | B: Naturales | C: Juridicas | D: Vacios
@@ -200,41 +193,21 @@ frames = []
 for f in archivos:
     print(f" - Leyendo: {f['name']}")
     try:
-        df = leer_df(descargar_texto(f['id']))
+        d = leer_registros(descargar_texto(f['id']))
+        d['ARCHIVO'] = f['name']
+        frames.append(d)
     except Exception as e:
         print(f"   ✗ Se omite ({e})")
-        continue
-    df.columns = df.columns.str.strip()
-    c_cuenta = resolver_col(df, COL_CUENTA,  "CUENTA-CO")
-    c_cod    = resolver_col(df, COL_COD_AUX, "COD_AUX")
-    c_id     = resolver_col(df, COL_IDENT,   "IDENTIFICACION")
-    c_val    = resolver_col(df, COL_VALOR,   "VALOR")
-    faltan = [n for n, c in [("CUENTA", c_cuenta), ("COD_AUX", c_cod),
-                             ("IDENT", c_id), ("VALOR", c_val)] if c is None]
-    if faltan:
-        print(f"   ¡OJO! faltan {faltan}. Columnas: {list(df.columns)}")
-        continue
-    frames.append(pd.DataFrame({
-        'CUENTA':  df[c_cuenta].astype(str).str.strip(),
-        'COD_AUX': df[c_cod],
-        'IDENT':   df[c_id],
-        'VALOR':   df[c_val],
-    }))
 
 if not frames:
-    raise SystemExit("Ningún archivo trajo las columnas necesarias.")
+    raise SystemExit("Ningún archivo pudo leerse.")
 
 data = pd.concat(frames, ignore_index=True)
 
-# Solo filas con cuenta de EXACTAMENTE 10 dígitos (descarta títulos, guiones y filas partidas)
-data = data[data['CUENTA'].str.fullmatch(r'\d{10}')].copy()
+# Solo filas con cuenta de EXACTAMENTE 10 dígitos (descarta títulos, guiones y pies)
+data = data[data['CUENTA'].astype(str).str.fullmatch(r'\d{10}')].copy()
 if data.empty:
     raise SystemExit("No quedaron filas válidas. Revisa el archivo.")
-
-# Aviso si hay filas sin VALOR (posible renglón partido en el .txt original)
-sin_valor = int((data['VALOR'].astype(str).str.strip() == '').sum())
-if sin_valor:
-    print(f"⚠ {sin_valor} fila(s) sin VALOR (posibles renglones partidos). Suman 0; revísalas si el total no cuadra.")
 
 data['_grupo'] = data.apply(lambda r: clasificar_persona(r['COD_AUX'], r['IDENT']), axis=1)
 data['_valor'] = data['VALOR'].apply(parse_valor)
