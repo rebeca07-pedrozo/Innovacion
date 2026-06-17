@@ -110,14 +110,14 @@ claves_norm  = set(cuentas_norm.keys())
 
 print(f"✅ Cuentas leídas: {len(cuentas_lista)} | únicas: {len(cuentas_set)}")
 print("Ejemplos:", cuentas_lista[:5])
+
 #6
 import re
 
 ENCODING = 'utf-8'    # 👈 cambia a 'latin-1' si ves acentos raros
-N_MONTOS = 5          # cuántas columnas numéricas hay al final del reporte
+N_MONTOS = 9          # ✅ 9 columnas numéricas al final del reporte
 
-# Encabezados del consolidado, en el MISMO orden del reporte.
-# 👉 Si tu reporte trae más/menos columnas, ajústalas aquí.
+# Encabezados del consolidado, en el MISMO orden del reporte (3 de texto + 9 de montos = 12)
 HEADERS_CONSOLIDADO = [
     "NUM.CUENTA",
     "NUM N.I.T",
@@ -127,6 +127,10 @@ HEADERS_CONSOLIDADO = [
     "ING. NO OPER MES",
     "ING. NO OPER ANUAL",
     "IVA MES",
+    "IVA MES 16%",
+    "IVA AÑO",
+    "DEVOLUCION IVA",
+    "DEVOLUCION IVA 16%",
 ]
 
 sep = re.compile(r'\s{2,}')     # 2+ espacios = separador de campos
@@ -150,14 +154,14 @@ with open(RUTA_TXT, 'r', encoding=ENCODING, errors='replace') as f:
         cuenta_orig = cuentas_norm[clave]  # la cuenta tal cual está en el Excel
         cuentas_encontradas.add(cuenta_orig)
 
-        # Reconstrucción robusta: cuenta, nit, [nombre del medio], y los N montos finales
+        # cuenta = 1er campo | nit = 2do | montos = últimos 9 | nombre = lo del medio
         if len(campos) >= (2 + N_MONTOS + 1):
             cuenta_file = campos[0]
             nit         = campos[1]
             montos      = campos[-N_MONTOS:]
             nombre      = " ".join(campos[2:-N_MONTOS]).strip()
             fila_datos  = [cuenta_file, nit, nombre] + montos
-        else:                              # estructura inesperada: rellena
+        else:                              # estructura inesperada: rellena vacíos
             fila_datos = (campos + [""] * len(HEADERS_CONSOLIDADO))[:len(HEADERS_CONSOLIDADO)]
 
         resultados.append([cuenta_orig] + fila_datos + [s])
@@ -168,6 +172,8 @@ with open(RUTA_TXT, 'r', encoding=ENCODING, errors='replace') as f:
 print(f"✅ Líneas leídas      : {total:,}")
 print(f"✅ Cuentas encontradas: {len(cuentas_encontradas)}/{len(cuentas_set)}")
 print(f"✅ Registros hallados : {len(resultados):,}")
+
+
 #7
 import os
 from datetime import datetime
