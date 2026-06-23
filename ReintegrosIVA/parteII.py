@@ -108,83 +108,117 @@ def leer_txt(ruta):
 print("✅ Funciones de cálculo listas")
 
 #quinto
-def procesar_archivo(ruta_txt, carpeta_salida, prefijo):
+from datetime import datetime, timezone, timedelta
+
+def _hora_bogota():
+    # Colombia = UTC-5 (sin horario de verano)
+    return datetime.now(timezone(timedelta(hours=-5)))
+
+def _sheet_name(tipo):
+    # Excel no permite \ / ? * : [ ] en nombres de hoja, y máximo 31 caracteres
+    n = re.sub(r'[\\/*?:\[\]]', "_", str(tipo)).strip()[:31]
+    return n or "SIN_TIPO"
+
+def procesar_archivo(ruta_txt, ruta_xlsx):
     df = leer_txt(ruta_txt)
     df.columns = df.columns.str.strip()
 
     cC = _col(df, COL_CUENTA); cD = _col(df, COL_DEBITO)
     cR = _col(df, COL_CREDITO); cT = _col(df, COL_TIPO)
-
     deb, cre = _a_numero(df[cD]), _a_numero(df[cR])
 
-    # Columna "Extrae" = primer dígito de la cuenta
     df["Extrae"] = df[cC].astype(str).str.strip().str[0]
-    # Columna "Neto":
-    #   cuenta 4 -> (Débito - Crédito) * 19%   (queda negativo)
-    #   cuenta 2 -> (Crédito - Débito)         (queda positivo, cuadra con la 4)
     df["Neto"] = np.select(
         [df["Extrae"] == "4", df["Extrae"] == "2"],
         [(deb - cre) * IVA, (cre - deb) * SIGNO_CUENTA_2],
         default=0.0)
     df["_deb"], df["_cre"] = deb, cre
 
-    os.makedirs(carpeta_salida, exist_ok=True)
     cols_detalle = [c for c in df.columns if not c.startswith("_")]
-    generados, resumen_global = [], []
+    ts = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
+    resumen_global = []
 
-    for tipo, g in df.groupby(cT):
-        piv = (g.groupby(cC)
-                 .agg(Debito=("_deb","sum"), Credito=("_cre","sum"), Neto=("Neto","sum"))
-                 .reset_index())
-        piv["Dig"] = piv[cC].astype(str).str[0]
-        n4  = piv.loc[piv["Dig"] == "4", "Neto"].sum()
-        n2  = piv.loc[piv["Dig"] == "2", "Neto"].sum()
-        dif = n4 + n2
+    with pd.ExcelWriter(ruta_xlsx, engine="openpyxl") as xw:
+        # Reservamos la 1ª hoja para el RESUMEN_GENERAL (se llena al final)
+        pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
 
-        nom  = (re.sub(r'[\\/*?:\[\]]', "_", str(tipo)).strip() or "SIN_TIPO")
-        ruta = os.path.join(carpeta_salida, f"{prefijo}{nom}.xlsx")
-        with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
-            if INCLUIR_DETALLE:
-                g[cols_detalle].to_excel(xw, sheet_name="Detalle", index=False)
-            piv.drop(columns="Dig").to_excel(xw, sheet_name="Resumen", index=False)
-            pd.DataFrame({
+        for tipo, g in df.groupby(cT):
+            piv = (g.groupby(cC)
+                     .agg(Debito=("_deb","sum"), Credito=("_cre","sum"), Neto=("Neto","sum"))
+                     .reset_index())
+            piv["Dig"] = piv[cC].astype(str).str[0]
+            n4  = piv.loc[piv["Dig"] == "4", "Neto"].sum()
+            n2  = piv.loc[piv["Dig"] == "2", "Neto"].sum()
+            dif = n4 + n2
+            piv = piv.drop(columns="Dig")
+
+            sh  = _sheet_name(tipo)
+            cur = 3                                   # filas 1-3 = títulos
+
+            # --- RESUMEN (arriba) ---
+            piv.to_excel(xw, sheet_name=sh, startrow=cur, index=False)
+            cur += len(piv) + 2
+
+            # --- CUADRE (Neto4 / Neto2 / Diferencia) ---
+            chk = pd.DataFrame({
                 "Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
-                "Valor":    [n4, n2, dif]
-            }).to_excel(xw, sheet_name="Resumen", index=False, startrow=len(piv)+3)
+                "Valor":    [n4, n2, dif]})
+            chk.to_excel(xw, sheet_name=sh, startrow=cur, index=False)
+            cur += len(chk) + 2
 
-        estado = "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"
-        generados.append(ruta)
-        resumen_global.append({"Comprobante": tipo, "Neto_4": n4, "Neto_2": n2,
-                               "Diferencia": dif, "Filas": len(g), "Estado": estado})
-        print(f"   {nom:6}  filas={len(g):>7}  dif={dif:>15,.2f}   {estado}")
+            # --- DETALLE (abajo) ---
+            fila_detalle = cur
+            if INCLUIR_DETALLE:
+                g[cols_detalle].to_excel(xw, sheet_name=sh, startrow=fila_detalle + 1, index=False)
 
-    rg = os.path.join(carpeta_salida, f"{prefijo}RESUMEN_GENERAL.xlsx")
-    pd.DataFrame(resumen_global).to_excel(rg, index=False)
-    generados.append(rg)
-    return generados
+            # Títulos y rótulos (openpyxl usa filas en base 1)
+            ws = xw.sheets[sh]
+            ws.cell(1, 1, f"COMPROBANTE: {tipo}")
+            ws.cell(2, 1, f"Generado: {ts}")
+            if INCLUIR_DETALLE:
+                ws.cell(fila_detalle + 1, 1, "DETALLE")
 
-print("✅ Listo para procesar")
+            estado = "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"
+            resumen_global.append({
+                "Comprobante": tipo, "Hoja": sh, "Neto_4": n4, "Neto_2": n2,
+                "Diferencia": dif, "Filas": len(g), "Estado": estado,
+                "Correos destinatarios": ""        # <-- aquí mapeas a quién va cada comprobante
+            })
+            print(f"   {sh:6}  filas={len(g):>7}  dif={dif:>15,.2f}   {estado}")
 
+        # --- Hoja RESUMEN_GENERAL (al inicio del libro) ---
+        pd.DataFrame(resumen_global).to_excel(xw, sheet_name="RESUMEN_GENERAL",
+                                              startrow=2, index=False)
+        xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
+
+    return resumen_global
+
+print("Listo para procesar (un libro por archivo, con hojas por comprobante)")
 #sexto
-assert FOLDER_ID.strip(), "❌ Falta poner el FOLDER_ID en el Bloque 2"
+
+assert FOLDER_ID.strip(), "Falta poner el FOLDER_ID en el Bloque 2"
 
 SALIDA_LOCAL = "/content/salida"
 os.makedirs(SALIDA_LOCAL, exist_ok=True)
 
 archivos = listar_archivos(FOLDER_ID)
-print(f"📂 Encontré {len(archivos)} archivo(s) en la carpeta:\n")
+print(f"Encontré {len(archivos)} archivo(s) en la carpeta:\n")
 
 carpeta_resultados = obtener_o_crear_subcarpeta(NOMBRE_CARPETA_SALIDA, FOLDER_ID)
+sello = _hora_bogota().strftime("%Y-%m-%d_%H%M")     # fecha y hora para el nombre
 
 for f in archivos:
-    print(f"📄 Procesando: {f['name']}")
+    print(f"Procesando: {f['name']}")
     local = descargar(f["id"], f"/content/{f['name']}")
-    prefijo = re.sub(r'\.[^.]+$', '', f["name"]) + "__"      # ej:  CONSOLIDADO__BR.xlsx
-    generados = procesar_archivo(local, SALIDA_LOCAL, prefijo)
 
-    print("   ⬆️  Subiendo resultados a Drive...")
-    for ruta in generados:
-        subir(ruta, carpeta_resultados)
-    print()
+    base = re.sub(r'\.[^.]+$', '', f["name"])         # nombre sin extensión
+    nombre_salida = f"COMPROBANTES_{base}_{sello}.xlsx"
+    ruta_salida   = os.path.join(SALIDA_LOCAL, nombre_salida)
 
-print(f"🎉 Listo. Revisa la subcarpeta '{NOMBRE_CARPETA_SALIDA}' dentro de tu carpeta de Drive.")
+    procesar_archivo(local, ruta_salida)
+
+    print("Subiendo a Drive...")
+    subir(ruta_salida, carpeta_resultados)
+    print(f"{nombre_salida}\n")
+
+print(f" Listo. Busca '{NOMBRE_CARPETA_SALIDA}' en tu carpeta de Drive.")
