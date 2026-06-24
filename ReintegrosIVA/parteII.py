@@ -242,4 +242,4 @@ for tipo, gt in master.groupby(cT):
                           "Hoja": _sheet_name(cuenta_iva), **r})
         escribir_resumen_general(xw, filas, ts)
     subir(ruta, f_det)
-    print(f"   ✅ {nombre}  ({len(filas)} cuentas de IVA)")
+    print(f"    {nombre}  ({len(filas)} cuentas de IVA)")
