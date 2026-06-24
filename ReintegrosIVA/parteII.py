@@ -142,11 +142,40 @@ def escribir_hoja(xw, sheet, sub, titulo, ts, cols):
     ws.cell(2, 1, f"Generado: {ts}")
     return {"Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
             "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
+def construir_pivot_detalle(sub, cols, cuenta_iva):
+    """Tablita del detalle por comprobante: Cuenta de IVA fija + Cuenta de ingreso por línea."""
+    piv = (sub.groupby([cols["cuenta"], cols["tipo"], cols["desc"]], dropna=False)
+              .agg(**{"Suma de Debito":  ("_deb", "sum"),
+                      "Suma de Crédito": ("_cre", "sum"),
+                      "Suma de Neto":    ("Neto", "sum")})
+              .reset_index()
+              .rename(columns={cols["cuenta"]: "Cuenta de ingreso",
+                               cols["tipo"]:   "Tipo Comprobante",
+                               cols["desc"]:   "Descripción transacción"}))
+    piv.insert(0, "Cuenta de IVA", cuenta_iva)            # columna fija al inicio (se repite a propósito)
+    piv = piv[["Cuenta de IVA", "Cuenta de ingreso", "Tipo Comprobante",
+               "Descripción transacción", "Suma de Debito", "Suma de Crédito", "Suma de Neto"]]
+    n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
+    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum()
+    return piv, n4, n2, n4 + n2
+
+def escribir_hoja_detalle(xw, sheet, sub, titulo, ts, cols, cuenta_iva):
+    """Igual que escribir_hoja pero con la tabla de 7 columnas (IVA + ingreso)."""
+    piv, n4, n2, dif = construir_pivot_detalle(sub, cols, cuenta_iva)
+    cur = 3
+    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
+    cur += len(piv) + 2
+    pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
+                  "Valor":    [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
+    ws = xw.sheets[sheet]
+    ws.cell(1, 1, titulo)
+    ws.cell(2, 1, f"Generado: {ts}")
+    return {"Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
+            "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
 
 def escribir_resumen_general(xw, filas, ts):
-    """Hoja RESUMEN_GENERAL al inicio, con columna 'Correos destinatarios' para Apps Script."""
-    df = pd.DataFrame(filas); df["Correos destinatarios"] = ""
-    df.to_excel(xw, sheet_name="RESUMEN_GENERAL", startrow=2, index=False)
+    """Hoja RESUMEN_GENERAL al inicio del libro (sin columna de correos)."""
+    pd.DataFrame(filas).to_excel(xw, sheet_name="RESUMEN_GENERAL", startrow=2, index=False)
     xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
 
 print("Funciones listas (tabla compacta + 2 estructuras)")
@@ -203,12 +232,14 @@ for tipo, gt in master.groupby(cT):
     ruta = f"/content/salida/det/{nombre}"; filas = []
     with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
         pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
-        for cuenta, gc in gt.groupby("_CuentaReporte"):
-            r = escribir_hoja(xw, _sheet_name(cuenta), gc,
-                              f"CUENTA: {cuenta}  |  COMPROBANTE: {tipo}", ts, cols)
-            filas.append({"Cuenta": cuenta, "Hoja": _sheet_name(cuenta), **r})
+        for cuenta_iva, gc in gt.groupby("_CuentaReporte"):
+            r = escribir_hoja_detalle(xw, _sheet_name(cuenta_iva), gc,
+                              f"CUENTA IVA: {cuenta_iva}  |  COMPROBANTE: {tipo}", ts, cols, cuenta_iva)
+            ingresos = sorted(gc.loc[gc["Extrae"] == "4", cC].astype(str).str.strip().unique())
+            cuentas_ingreso = ", ".join(ingresos) if ingresos else "(sin cuentas de ingreso)"
+            filas.append({"Cuenta IVA": cuenta_iva,
+                          "Cuentas de ingreso": cuentas_ingreso,
+                          "Hoja": _sheet_name(cuenta_iva), **r})
         escribir_resumen_general(xw, filas, ts)
     subir(ruta, f_det)
-    print(f"    {nombre}  ({len(filas)} cuentas)")
-
-print(f"\n Listo en Drive: '{NOMBRE_CARPETA_SALIDA}' → '{CARPETA_REPORTES}' y '{CARPETA_DETALLE}'.")
+    print(f"   ✅ {nombre}  ({len(filas)} cuentas de IVA)")
