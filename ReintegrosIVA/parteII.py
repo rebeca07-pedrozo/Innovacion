@@ -1,39 +1,36 @@
 #primero 
-# Autoriza Colab para que pueda leer/escribir en TU Google Drive.
-# Al correrlo, sale una ventana: elige tu cuenta y dale "Permitir".
+import pandas as pd, numpy as np, re, unicodedata
+import os
 from google.colab import auth
 auth.authenticate_user()
-
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from datetime import datetime, timezone, timedelta
+drive = build('drive', 'v3')    
+print("Conectado a Google Drive")
 
-drive = build('drive', 'v3')   # cliente de Google Drive
-print("✅ Conectado a Google Drive")
 
 #segundo 
-# ===================== AQUÍ PONES TU INFORMACIÓN =====================
 
-FOLDER_ID = ""          # <<<<<< PEGA AQUÍ EL ID DE TU CARPETA DE DRIVE
-                        #        (donde dejas los .txt que descargas)
-
-SEPARADOR       = ","   # separador del txt:  ","   "\t"(tab)   "|"   ";"
-IVA             = 0.19  # tarifa de IVA
-SIGNO_CUENTA_2  = 1     # 1 = (Créd−Déb), cuadra a 0.  Pon -1 si el IVA te llega en Débito
-INCLUIR_DETALLE = True  # False = solo hoja Resumen (si un comprobante es enorme)
-TOLERANCIA      = 1.0   # diferencia en $ que aceptas como "cuadrado"
-
-# Nombres de columnas en tu txt (déjalos así si no cambian los encabezados)
+FOLDER_ID = ""          
+SEPARADOR       = ","   
+IVA             = 0.19  
+SIGNO_CUENTA_2  = 1     
+INCLUIR_DETALLE = True 
+TOLERANCIA      = 1.0   
 COL_CUENTA  = "Cuenta"
 COL_DEBITO  = "Debito"
 COL_CREDITO = "Crédito"
 COL_TIPO    = "Tipo Comprobante"
+COL_DESCTRX = "Descripción transacción"   
+CARPETA_REPORTES = "REPORTES_POR_CUENTA"        
+CARPETA_DETALLE = "DETALLE_COMPROBANTES"       
+NOMBRE_CARPETA_SALIDA = "SALIDA_COMPROBANTES"  
+print("Configuración lista")
 
-NOMBRE_CARPETA_SALIDA = "SALIDA_COMPROBANTES"   # subcarpeta donde quedan los Excel
-# =====================================================================
-print("✅ Configuración lista")
 
 #tercero
-import os
+
 
 def listar_archivos(folder_id, extensiones=(".txt", ".csv")):
     """Devuelve los archivos de la carpeta que terminen en .txt o .csv"""
@@ -71,10 +68,10 @@ def subir(ruta_local, folder_id):
     media = MediaFileUpload(ruta_local, resumable=True)
     drive.files().create(body=meta, media_body=media, fields="id").execute()
 
-print("✅ Funciones de Drive listas")
+print("Funciones de Drive listas")
+
 
 #cuarto
-import pandas as pd, numpy as np, re, unicodedata
 
 def _norm(s):
     return unicodedata.normalize("NFKD", str(s)).encode("ascii","ignore").decode().lower().strip()
@@ -105,120 +102,113 @@ def leer_txt(ruta):
     except UnicodeDecodeError:
             return pd.read_csv(ruta, sep=SEPARADOR, dtype=str, encoding="latin-1")
 
-print("✅ Funciones de cálculo listas")
+print("Funciones de cálculo listas")
+
+
 
 #quinto
-from datetime import datetime, timezone, timedelta
 
 def _hora_bogota():
-    # Colombia = UTC-5 (sin horario de verano)
-    return datetime.now(timezone(timedelta(hours=-5)))
+    return datetime.now(timezone(timedelta(hours=-5)))   # Colombia UTC-5
 
-def _sheet_name(tipo):
-    # Excel no permite \ / ? * : [ ] en nombres de hoja, y máximo 31 caracteres
-    n = re.sub(r'[\\/*?:\[\]]', "_", str(tipo)).strip()[:31]
-    return n or "SIN_TIPO"
+def _sheet_name(x):
+    n = re.sub(r'[\\/*?:\[\]]', "_", str(x)).strip()[:31]   # Excel: máx 31 chars, sin \/?*:[]
+    return n or "SIN_NOMBRE"
 
-def procesar_archivo(ruta_txt, ruta_xlsx):
-    df = leer_txt(ruta_txt)
-    df.columns = df.columns.str.strip()
+def construir_pivot(sub, cols):
+    """Tablita dinámica con SOLO las 6 columnas + el cuadre (n4, n2, diferencia)."""
+    piv = (sub.groupby([cols["cuenta"], cols["tipo"], cols["desc"]], dropna=False)
+              .agg(**{"Suma de Debito":  ("_deb", "sum"),
+                      "Suma de Crédito": ("_cre", "sum"),
+                      "Suma de Neto":    ("Neto", "sum")})
+              .reset_index()
+              .rename(columns={cols["cuenta"]: "Cuenta",
+                               cols["tipo"]:   "Tipo Comprobante",
+                               cols["desc"]:   "Descripción transacción"}))
+    n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
+    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum()
+    return piv, n4, n2, n4 + n2
 
-    cC = _col(df, COL_CUENTA); cD = _col(df, COL_DEBITO)
-    cR = _col(df, COL_CREDITO); cT = _col(df, COL_TIPO)
-    deb, cre = _a_numero(df[cD]), _a_numero(df[cR])
+def escribir_hoja(xw, sheet, sub, titulo, ts, cols):
+    """Escribe una hoja: título + tablita compacta + cuadre. Devuelve el resumen."""
+    piv, n4, n2, dif = construir_pivot(sub, cols)
+    cur = 3
+    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
+    cur += len(piv) + 2
+    pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
+                  "Valor":    [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
+    ws = xw.sheets[sheet]
+    ws.cell(1, 1, titulo)
+    ws.cell(2, 1, f"Generado: {ts}")
+    return {"Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
+            "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
 
-    df["Extrae"] = df[cC].astype(str).str.strip().str[0]
-    df["Neto"] = np.select(
-        [df["Extrae"] == "4", df["Extrae"] == "2"],
-        [(deb - cre) * IVA, (cre - deb) * SIGNO_CUENTA_2],
-        default=0.0)
-    df["_deb"], df["_cre"] = deb, cre
+def escribir_resumen_general(xw, filas, ts):
+    """Hoja RESUMEN_GENERAL al inicio, con columna 'Correos destinatarios' para Apps Script."""
+    df = pd.DataFrame(filas); df["Correos destinatarios"] = ""
+    df.to_excel(xw, sheet_name="RESUMEN_GENERAL", startrow=2, index=False)
+    xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
 
-    cols_detalle = [c for c in df.columns if not c.startswith("_")]
-    ts = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
-    resumen_global = []
+print("Funciones listas (tabla compacta + 2 estructuras)")
 
-    with pd.ExcelWriter(ruta_xlsx, engine="openpyxl") as xw:
-        # Reservamos la 1ª hoja para el RESUMEN_GENERAL (se llena al final)
-        pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
 
-        for tipo, g in df.groupby(cT):
-            piv = (g.groupby(cC)
-                     .agg(Debito=("_deb","sum"), Credito=("_cre","sum"), Neto=("Neto","sum"))
-                     .reset_index())
-            piv["Dig"] = piv[cC].astype(str).str[0]
-            n4  = piv.loc[piv["Dig"] == "4", "Neto"].sum()
-            n2  = piv.loc[piv["Dig"] == "2", "Neto"].sum()
-            dif = n4 + n2
-            piv = piv.drop(columns="Dig")
-
-            sh  = _sheet_name(tipo)
-            cur = 3                                   # filas 1-3 = títulos
-
-            # --- RESUMEN (arriba) ---
-            piv.to_excel(xw, sheet_name=sh, startrow=cur, index=False)
-            cur += len(piv) + 2
-
-            # --- CUADRE (Neto4 / Neto2 / Diferencia) ---
-            chk = pd.DataFrame({
-                "Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
-                "Valor":    [n4, n2, dif]})
-            chk.to_excel(xw, sheet_name=sh, startrow=cur, index=False)
-            cur += len(chk) + 2
-
-            # --- DETALLE (abajo) ---
-            fila_detalle = cur
-            if INCLUIR_DETALLE:
-                g[cols_detalle].to_excel(xw, sheet_name=sh, startrow=fila_detalle + 1, index=False)
-
-            # Títulos y rótulos (openpyxl usa filas en base 1)
-            ws = xw.sheets[sh]
-            ws.cell(1, 1, f"COMPROBANTE: {tipo}")
-            ws.cell(2, 1, f"Generado: {ts}")
-            if INCLUIR_DETALLE:
-                ws.cell(fila_detalle + 1, 1, "DETALLE")
-
-            estado = "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"
-            resumen_global.append({
-                "Comprobante": tipo, "Hoja": sh, "Neto_4": n4, "Neto_2": n2,
-                "Diferencia": dif, "Filas": len(g), "Estado": estado,
-                "Correos destinatarios": ""        # <-- aquí mapeas a quién va cada comprobante
-            })
-            print(f"   {sh:6}  filas={len(g):>7}  dif={dif:>15,.2f}   {estado}")
-
-        # --- Hoja RESUMEN_GENERAL (al inicio del libro) ---
-        pd.DataFrame(resumen_global).to_excel(xw, sheet_name="RESUMEN_GENERAL",
-                                              startrow=2, index=False)
-        xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
-
-    return resumen_global
-
-print("Listo para procesar (un libro por archivo, con hojas por comprobante)")
 #sexto
 
 assert FOLDER_ID.strip(), "Falta poner el FOLDER_ID en el Bloque 2"
-
-SALIDA_LOCAL = "/content/salida"
-os.makedirs(SALIDA_LOCAL, exist_ok=True)
-
-archivos = listar_archivos(FOLDER_ID)
-print(f"Encontré {len(archivos)} archivo(s) en la carpeta:\n")
-
-carpeta_resultados = obtener_o_crear_subcarpeta(NOMBRE_CARPETA_SALIDA, FOLDER_ID)
-sello = _hora_bogota().strftime("%Y-%m-%d_%H%M")     # fecha y hora para el nombre
-
-for f in archivos:
-    print(f"Procesando: {f['name']}")
+frames = []
+print(" Leyendo archivos...")
+for f in listar_archivos(FOLDER_ID):
     local = descargar(f["id"], f"/content/{f['name']}")
+    d = leer_txt(local); d.columns = d.columns.str.strip()
+    cuenta_rep = d[_col(d, COL_CUENTA)].astype(str).str.strip().mode().iloc[0]
+    d["_CuentaReporte"] = cuenta_rep          
+    frames.append(d)
+    print(f"   {f['name']}  ->  cuenta {cuenta_rep}  ({len(d)} filas)")
+assert frames, "No encontré archivos .txt/.csv en la carpeta"
 
-    base = re.sub(r'\.[^.]+$', '', f["name"])         # nombre sin extensión
-    nombre_salida = f"COMPROBANTES_{base}_{sello}.xlsx"
-    ruta_salida   = os.path.join(SALIDA_LOCAL, nombre_salida)
+master = pd.concat(frames, ignore_index=True)
+cC = _col(master, COL_CUENTA);  cD = _col(master, COL_DEBITO)
+cR = _col(master, COL_CREDITO); cT = _col(master, COL_TIPO); cX = _col(master, COL_DESCTRX)
+deb, cre = _a_numero(master[cD]), _a_numero(master[cR])
+master["Extrae"] = master[cC].astype(str).str.strip().str[0]
+master["Neto"] = np.select(
+    [master["Extrae"] == "4", master["Extrae"] == "2"],
+    [(deb - cre) * IVA, (cre - deb) * SIGNO_CUENTA_2], default=0.0)
+master["_deb"], master["_cre"] = deb, cre
+cols = {"cuenta": cC, "tipo": cT, "desc": cX}
 
-    procesar_archivo(local, ruta_salida)
+ts    = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
+sello = _hora_bogota().strftime("%Y-%m-%d_%H%M")
+raiz  = obtener_o_crear_subcarpeta(NOMBRE_CARPETA_SALIDA, FOLDER_ID)
+f_rep = obtener_o_crear_subcarpeta(CARPETA_REPORTES, raiz)
+f_det = obtener_o_crear_subcarpeta(CARPETA_DETALLE,  raiz)
+os.makedirs("/content/salida/rep", exist_ok=True)
+os.makedirs("/content/salida/det", exist_ok=True)
+print("\n PASO 1 — Reportes por cuenta")
+for cuenta, gc in master.groupby("_CuentaReporte"):
+    nombre = f"{cuenta}_{sello}.xlsx"          
+    ruta = f"/content/salida/rep/{nombre}"; filas = []
+    with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
+        pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
+        for tipo, gt in gc.groupby(cT):
+            r = escribir_hoja(xw, _sheet_name(tipo), gt,
+                              f"COMPROBANTE: {tipo}  |  CUENTA: {cuenta}", ts, cols)
+            filas.append({"Comprobante": tipo, "Hoja": _sheet_name(tipo), **r})
+        escribir_resumen_general(xw, filas, ts)
+    subir(ruta, f_rep)
+    print(f"   {nombre}  ({len(filas)} comprobantes)")
+print("\n PASO 2 — Detalle por comprobante")
+for tipo, gt in master.groupby(cT):
+    nombre = f"{_sheet_name(tipo)}.xlsx"         
+    ruta = f"/content/salida/det/{nombre}"; filas = []
+    with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
+        pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
+        for cuenta, gc in gt.groupby("_CuentaReporte"):
+            r = escribir_hoja(xw, _sheet_name(cuenta), gc,
+                              f"CUENTA: {cuenta}  |  COMPROBANTE: {tipo}", ts, cols)
+            filas.append({"Cuenta": cuenta, "Hoja": _sheet_name(cuenta), **r})
+        escribir_resumen_general(xw, filas, ts)
+    subir(ruta, f_det)
+    print(f"    {nombre}  ({len(filas)} cuentas)")
 
-    print("Subiendo a Drive...")
-    subir(ruta_salida, carpeta_resultados)
-    print(f"{nombre_salida}\n")
-
-print(f" Listo. Busca '{NOMBRE_CARPETA_SALIDA}' en tu carpeta de Drive.")
+print(f"\n Listo en Drive: '{NOMBRE_CARPETA_SALIDA}' → '{CARPETA_REPORTES}' y '{CARPETA_DETALLE}'.")
