@@ -1,5 +1,6 @@
 #primero 
 import pandas as pd, numpy as np, re, unicodedata
+from datetime import datetime, timezone, timedelta
 import os
 from google.colab import auth
 auth.authenticate_user()
@@ -14,20 +15,20 @@ print("Conectado a Google Drive")
 
 FOLDER_ID = ""          
 SEPARADOR       = ","   
-IVA             = 0.19  
+IVA             = 0.19
 SIGNO_CUENTA_2  = 1     
-INCLUIR_DETALLE = True 
 TOLERANCIA      = 1.0   
 COL_CUENTA  = "Cuenta"
 COL_DEBITO  = "Debito"
 COL_CREDITO = "Crédito"
 COL_TIPO    = "Tipo Comprobante"
-COL_DESCTRX = "Descripción transacción"   
-CARPETA_REPORTES = "REPORTES_POR_CUENTA"        
-CARPETA_DETALLE = "DETALLE_COMPROBANTES"       
-NOMBRE_CARPETA_SALIDA = "SALIDA_COMPROBANTES"  
-print("Configuración lista")
-
+COL_DESCTRX = "Descripción transacción"
+SUB_REPORTES     = "REPORTES_GENERALES"      
+SUB_HOJAS_IVA    = "HOJAS_POR_CUENTA_IVA"    
+SUB_PROC_TXT     = "_PROCESADOS_TXT"         
+SUB_PROC_DATA    = "_PROCESADOS_DATA"        
+ARCHIVO_FASE2    = "HOJAS_POR_CUENTA_IVA.xlsx"
+print("✅ Configuración lista")
 
 #tercero
 
@@ -67,6 +68,13 @@ def subir(ruta_local, folder_id):
     meta = {"name": os.path.basename(ruta_local), "parents": [folder_id]}
     media = MediaFileUpload(ruta_local, resumable=True)
     drive.files().create(body=meta, media_body=media, fields="id").execute()
+    
+def mover_archivo(file_id, nuevo_parent):
+    """Mueve un archivo a otra carpeta (para sacar los .txt ya procesados del input)."""
+    meta = drive.files().get(fileId=file_id, fields="parents").execute()
+    prev = ",".join(meta.get("parents", []))
+    drive.files().update(fileId=file_id, addParents=nuevo_parent,
+                         removeParents=prev, fields="id").execute()
 
 print("Funciones de Drive listas")
 
@@ -108,94 +116,82 @@ print("Funciones de cálculo listas")
 
 #quinto
 
+
 def _hora_bogota():
-    return datetime.now(timezone(timedelta(hours=-5)))   # Colombia UTC-5
+    return datetime.now(timezone(timedelta(hours=-5)))
 
 def _sheet_name(x):
-    n = re.sub(r'[\\/*?:\[\]]', "_", str(x)).strip()[:31]   # Excel: máx 31 chars, sin \/?*:[]
+    n = re.sub(r'[\\/*?:\[\]]', "_", str(x)).strip()[:31]
     return n or "SIN_NOMBRE"
 
-def construir_pivot(sub, cols):
-    """Tablita dinámica con SOLO las 6 columnas + el cuadre (n4, n2, diferencia)."""
+def escribir_hoja_comprobante(xw, sheet, sub, titulo, ts, cols):
     piv = (sub.groupby([cols["cuenta"], cols["tipo"], cols["desc"]], dropna=False)
               .agg(**{"Suma de Debito":  ("_deb", "sum"),
                       "Suma de Crédito": ("_cre", "sum"),
                       "Suma de Neto":    ("Neto", "sum")})
               .reset_index()
-              .rename(columns={cols["cuenta"]: "Cuenta",
-                               cols["tipo"]:   "Tipo Comprobante",
-                               cols["desc"]:   "Descripción transacción"}))
+              .rename(columns={cols["cuenta"]: "Cuenta", cols["tipo"]: "Tipo Comprobante",
+                               cols["desc"]: "Descripción transacción"}))
     n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
-    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum()
-    return piv, n4, n2, n4 + n2
-
-def escribir_hoja(xw, sheet, sub, titulo, ts, cols):
-    """Escribe una hoja: título + tablita compacta + cuadre. Devuelve el resumen."""
-    piv, n4, n2, dif = construir_pivot(sub, cols)
+    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum(); dif = n4 + n2
     cur = 3
-    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
-    cur += len(piv) + 2
+    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False); cur += len(piv) + 2
     pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
-                  "Valor":    [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
-    ws = xw.sheets[sheet]
-    ws.cell(1, 1, titulo)
-    ws.cell(2, 1, f"Generado: {ts}")
+                  "Valor": [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
+    ws = xw.sheets[sheet]; ws.cell(1, 1, titulo); ws.cell(2, 1, f"Generado: {ts}")
     return {"Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
             "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
-def construir_pivot_detalle(sub, cols, cuenta_iva):
-    """Tablita del detalle por comprobante: Cuenta de IVA fija + Cuenta de ingreso por línea."""
-    piv = (sub.groupby([cols["cuenta"], cols["tipo"], cols["desc"]], dropna=False)
-              .agg(**{"Suma de Debito":  ("_deb", "sum"),
-                      "Suma de Crédito": ("_cre", "sum"),
-                      "Suma de Neto":    ("Neto", "sum")})
-              .reset_index()
-              .rename(columns={cols["cuenta"]: "Cuenta de ingreso",
-                               cols["tipo"]:   "Tipo Comprobante",
-                               cols["desc"]:   "Descripción transacción"}))
-    piv.insert(0, "Cuenta de IVA", cuenta_iva)            # columna fija al inicio (se repite a propósito)
-    piv = piv[["Cuenta de IVA", "Cuenta de ingreso", "Tipo Comprobante",
-               "Descripción transacción", "Suma de Debito", "Suma de Crédito", "Suma de Neto"]]
-    n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
-    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum()
-    return piv, n4, n2, n4 + n2
 
-def escribir_hoja_detalle(xw, sheet, sub, titulo, ts, cols, cuenta_iva):
-    """Igual que escribir_hoja pero con la tabla de 7 columnas (IVA + ingreso)."""
-    piv, n4, n2, dif = construir_pivot_detalle(sub, cols, cuenta_iva)
+def escribir_hoja_iva(xw, sheet, sub, cuenta_iva, ts):
+    """sub = datos ya procesados (columnas fijas del CSV de acumulación)."""
+    ing = sub[sub["Extrae"] == "4"]    
+    piv = (ing.groupby(["Cuenta", "Descripción transacción"], dropna=False)
+              .agg(**{"Suma Débito":  ("Debito", "sum"),
+                      "Suma Crédito": ("Credito", "sum"),
+                      "Suma Neto":    ("Neto", "sum")})
+              .reset_index()
+              .rename(columns={"Cuenta": "Cuenta Ingreso",
+                               "Descripción transacción": "Descripción Transacción"}))
+    piv.insert(0, "Cuenta IVA", cuenta_iva)
+    piv = piv[["Cuenta IVA", "Cuenta Ingreso", "Descripción Transacción",
+               "Suma Débito", "Suma Crédito", "Suma Neto"]]
+    n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
+    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum(); dif = n4 + n2
     cur = 3
-    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
-    cur += len(piv) + 2
+    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False); cur += len(piv) + 2
     pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
-                  "Valor":    [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
-    ws = xw.sheets[sheet]
-    ws.cell(1, 1, titulo)
-    ws.cell(2, 1, f"Generado: {ts}")
-    return {"Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
+                  "Valor": [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
+    ws = xw.sheets[sheet]; ws.cell(1, 1, f"CUENTA IVA: {cuenta_iva}"); ws.cell(2, 1, f"Generado: {ts}")
+    return {"Cuenta IVA": cuenta_iva,
+            "Cuentas de ingreso": ", ".join(sorted(ing["Cuenta"].astype(str).unique())) or "(ninguna)",
+            "Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
             "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
 
 def escribir_resumen_general(xw, filas, ts):
-    """Hoja RESUMEN_GENERAL al inicio del libro (sin columna de correos)."""
     pd.DataFrame(filas).to_excel(xw, sheet_name="RESUMEN_GENERAL", startrow=2, index=False)
     xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
 
-print("Funciones listas (tabla compacta + 2 estructuras)")
-
+print("Funciones de Fase 1 y Fase 2 listas")
 
 #sexto
 
-assert FOLDER_ID.strip(), "Falta poner el FOLDER_ID en el Bloque 2"
+assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 2"
+
+f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTES,  FOLDER_ID)
+f_ptxt = obtener_o_crear_subcarpeta(SUB_PROC_TXT,  FOLDER_ID)
+f_pdat = obtener_o_crear_subcarpeta(SUB_PROC_DATA, FOLDER_ID)
+
+archivos = listar_archivos(FOLDER_ID)
+assert archivos, "No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
+print(f"Lote actual: {len(archivos)} archivo(s)")
+
 frames = []
-print(" Leyendo archivos...")
-for f in listar_archivos(FOLDER_ID):
+for f in archivos:
     local = descargar(f["id"], f"/content/{f['name']}")
     d = leer_txt(local); d.columns = d.columns.str.strip()
-    cuenta_rep = d[_col(d, COL_CUENTA)].astype(str).str.strip().mode().iloc[0]
-    d["_CuentaReporte"] = cuenta_rep          
     frames.append(d)
-    print(f"   {f['name']}  ->  cuenta {cuenta_rep}  ({len(d)} filas)")
-assert frames, "No encontré archivos .txt/.csv en la carpeta"
-
 master = pd.concat(frames, ignore_index=True)
+
 cC = _col(master, COL_CUENTA);  cD = _col(master, COL_DEBITO)
 cR = _col(master, COL_CREDITO); cT = _col(master, COL_TIPO); cX = _col(master, COL_DESCTRX)
 deb, cre = _a_numero(master[cD]), _a_numero(master[cR])
@@ -206,40 +202,66 @@ master["Neto"] = np.select(
 master["_deb"], master["_cre"] = deb, cre
 cols = {"cuenta": cC, "tipo": cT, "desc": cX}
 
+cuentas2 = sorted(master.loc[master["Extrae"] == "2", cC].astype(str).str.strip().unique())
+assert len(cuentas2) != 0, "Este lote NO tiene ninguna cuenta que empiece por 2 (Cuenta IVA)."
+assert len(cuentas2) == 1, f"Hay más de una cuenta que empieza por 2: {cuentas2}. Sube un lote por caso."
+cuenta_iva = cuentas2[0]
+print(f"🔑 Cuenta IVA del lote: {cuenta_iva}")
+
 ts    = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
-sello = _hora_bogota().strftime("%Y-%m-%d_%H%M")
-raiz  = obtener_o_crear_subcarpeta(NOMBRE_CARPETA_SALIDA, FOLDER_ID)
-f_rep = obtener_o_crear_subcarpeta(CARPETA_REPORTES, raiz)
-f_det = obtener_o_crear_subcarpeta(CARPETA_DETALLE,  raiz)
-os.makedirs("/content/salida/rep", exist_ok=True)
-os.makedirs("/content/salida/det", exist_ok=True)
-print("\n PASO 1 — Reportes por cuenta")
-for cuenta, gc in master.groupby("_CuentaReporte"):
-    nombre = f"{cuenta}_{sello}.xlsx"          
-    ruta = f"/content/salida/rep/{nombre}"; filas = []
-    with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
-        pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
-        for tipo, gt in gc.groupby(cT):
-            r = escribir_hoja(xw, _sheet_name(tipo), gt,
-                              f"COMPROBANTE: {tipo}  |  CUENTA: {cuenta}", ts, cols)
-            filas.append({"Comprobante": tipo, "Hoja": _sheet_name(tipo), **r})
-        escribir_resumen_general(xw, filas, ts)
-    subir(ruta, f_rep)
-    print(f"   {nombre}  ({len(filas)} comprobantes)")
-print("\n PASO 2 — Detalle por comprobante")
-for tipo, gt in master.groupby(cT):
-    nombre = f"{_sheet_name(tipo)}.xlsx"         
-    ruta = f"/content/salida/det/{nombre}"; filas = []
-    with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
-        pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
-        for cuenta_iva, gc in gt.groupby("_CuentaReporte"):
-            r = escribir_hoja_detalle(xw, _sheet_name(cuenta_iva), gc,
-                              f"CUENTA IVA: {cuenta_iva}  |  COMPROBANTE: {tipo}", ts, cols, cuenta_iva)
-            ingresos = sorted(gc.loc[gc["Extrae"] == "4", cC].astype(str).str.strip().unique())
-            cuentas_ingreso = ", ".join(ingresos) if ingresos else "(sin cuentas de ingreso)"
-            filas.append({"Cuenta IVA": cuenta_iva,
-                          "Cuentas de ingreso": cuentas_ingreso,
-                          "Hoja": _sheet_name(cuenta_iva), **r})
-        escribir_resumen_general(xw, filas, ts)
-    subir(ruta, f_det)
-    print(f"    {nombre}  ({len(filas)} cuentas de IVA)")
+sello = _hora_bogota().strftime("%Y-%m-%d_%H%M%S")
+
+ruta_rep = f"/content/{cuenta_iva}_{sello}.xlsx"; filas = []
+with pd.ExcelWriter(ruta_rep, engine="openpyxl") as xw:
+    pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
+    for tipo, gt in master.groupby(cT):
+        r = escribir_hoja_comprobante(xw, _sheet_name(tipo), gt,
+                          f"COMPROBANTE: {tipo}  |  CUENTA IVA: {cuenta_iva}", ts, cols)
+        filas.append({"Comprobante": tipo, **r})
+    escribir_resumen_general(xw, filas, ts)
+subir(ruta_rep, f_rep)
+print(f"Reporte general subido: {cuenta_iva}_{sello}.xlsx")
+
+slim = pd.DataFrame({
+    "Cuenta IVA": cuenta_iva,
+    "Cuenta": master[cC].astype(str).str.strip(),
+    "Descripción transacción": master[cX].astype(str),
+    "Debito": master["_deb"], "Credito": master["_cre"],
+    "Neto": master["Neto"], "Extrae": master["Extrae"]})
+ruta_csv = f"/content/{cuenta_iva}_{sello}.csv"
+slim.to_csv(ruta_csv, index=False)
+subir(ruta_csv, f_pdat)
+
+for f in archivos:
+    mover_archivo(f["id"], f_ptxt)
+
+print(f" Lote procesado y guardado. Sube el siguiente lote y vuelve a correr esta Parte 1.")
+
+#septimo
+f_hiva = obtener_o_crear_subcarpeta(SUB_HOJAS_IVA, FOLDER_ID)
+f_pdat = obtener_o_crear_subcarpeta(SUB_PROC_DATA, FOLDER_ID)
+
+# Leer TODO lo acumulado
+csvs = listar_archivos(_id_de_subcarpeta := f_pdat, extensiones=(".csv",))
+# (si tu listar_archivos no recibe un folder distinto, usa la versión de abajo)
+proc = drive.files().list(q=f"'{f_pdat}' in parents and trashed=false",
+                          fields="files(id,name)").execute().get("files", [])
+assert proc, "No hay datos procesados. Corre la Parte 1 con al menos un lote."
+
+partes = []
+for f in proc:
+    local = descargar(f["id"], f"/content/{f['name']}")
+    partes.append(pd.read_csv(local, dtype={"Cuenta IVA": str, "Cuenta": str, "Extrae": str}))
+total = pd.concat(partes, ignore_index=True)
+print(f"Consolidando {total['Cuenta IVA'].nunique()} cuenta(s) IVA de {len(proc)} lote(s)")
+
+ts = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
+ruta = f"/content/{ARCHIVO_FASE2}"; resumen = []
+with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
+    pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
+    for cuenta_iva, sub in total.groupby("Cuenta IVA"):
+        r = escribir_hoja_iva(xw, _sheet_name(cuenta_iva), sub, cuenta_iva, ts)
+        resumen.append(r)
+    escribir_resumen_general(xw, resumen, ts)
+subir(ruta, f_hiva)
+print(f"🎉 Listo: '{ARCHIVO_FASE2}' en la subcarpeta '{SUB_HOJAS_IVA}'.")
