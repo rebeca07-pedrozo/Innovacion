@@ -12,35 +12,34 @@ print("Conectado a Google Drive")
 
 
 #segundo 
+# ===================== AQUÍ PONES TU INFORMACIÓN =====================
+FOLDER_ID = ""          # <<<<<< ID de tu carpeta de Drive (donde dejas los .txt del lote)
 
-FOLDER_ID = ""          
-SEPARADOR       = ","   
+SEPARADOR       = ","   # separador del txt:  ","   "\t"   "|"   ";"
 IVA             = 0.19
-SIGNO_CUENTA_2  = 1     
-TOLERANCIA      = 1.0   
+SIGNO_CUENTA_2  = 1      # 1 = (Créd−Déb).  Pon -1 si el IVA te llega en Débito
+TOLERANCIA      = 1.0
+
 COL_CUENTA  = "Cuenta"
 COL_DEBITO  = "Debito"
 COL_CREDITO = "Crédito"
 COL_TIPO    = "Tipo Comprobante"
 COL_DESCTRX = "Descripción transacción"
-SUB_REPORTES     = "REPORTES_GENERALES"      
-SUB_HOJAS_IVA    = "HOJAS_POR_CUENTA_IVA"    
-SUB_PROC_TXT     = "_PROCESADOS_TXT"         
-SUB_PROC_DATA    = "_PROCESADOS_DATA"        
-ARCHIVO_FASE2    = "HOJAS_POR_CUENTA_IVA.xlsx"
-print("✅ Configuración lista")
 
-#tercero
+SUB_REPORTE       = "REPORTE_GENERAL"   # Paso 1
+SUB_COMPROBANTES  = "COMPROBANTES"      # Paso 2 (AH.xlsx, BR.xlsx, ...)
+SUB_TXT_PROC      = "TXT_PROCESADOS"    # acá se mueven los .txt ya procesados
+# =====================================================================
+print("Configuración lista")
 
+#tercero#tercero
+import os
 
 def listar_archivos(folder_id, extensiones=(".txt", ".csv")):
-    """Devuelve los archivos de la carpeta que terminen en .txt o .csv"""
+    """Archivos de la carpeta que terminen en .txt o .csv"""
     q = f"'{folder_id}' in parents and trashed = false"
-    res = drive.files().list(q=q, fields="files(id, name, mimeType)",
-                             pageSize=1000).execute()
-    archivos = [f for f in res.get("files", [])
-                if f["name"].lower().endswith(extensiones)]
-    return archivos
+    res = drive.files().list(q=q, fields="files(id, name, mimeType)", pageSize=1000).execute()
+    return [f for f in res.get("files", []) if f["name"].lower().endswith(extensiones)]
 
 def descargar(file_id, destino_local):
     """Descarga un archivo de Drive al disco temporal de Colab"""
@@ -53,14 +52,13 @@ def descargar(file_id, destino_local):
     return destino_local
 
 def obtener_o_crear_subcarpeta(nombre, parent_id):
-    """Busca la subcarpeta de salida; si no existe, la crea (no duplica)"""
+    """Busca la subcarpeta; si no existe, la crea (no duplica)"""
     q = (f"name = '{nombre}' and '{parent_id}' in parents "
          f"and mimeType = 'application/vnd.google-apps.folder' and trashed = false")
     res = drive.files().list(q=q, fields="files(id)").execute().get("files", [])
     if res:
         return res[0]["id"]
-    meta = {"name": nombre, "mimeType": "application/vnd.google-apps.folder",
-            "parents": [parent_id]}
+    meta = {"name": nombre, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]}
     return drive.files().create(body=meta, fields="id").execute()["id"]
 
 def subir(ruta_local, folder_id):
@@ -68,17 +66,30 @@ def subir(ruta_local, folder_id):
     meta = {"name": os.path.basename(ruta_local), "parents": [folder_id]}
     media = MediaFileUpload(ruta_local, resumable=True)
     drive.files().create(body=meta, media_body=media, fields="id").execute()
-    
+
+def buscar_archivo(nombre, folder_id):
+    """Devuelve el archivo {id,name} si existe en la carpeta, o None."""
+    q = f"name = '{nombre}' and '{folder_id}' in parents and trashed = false"
+    res = drive.files().list(q=q, fields="files(id, name)").execute().get("files", [])
+    return res[0] if res else None
+
+def actualizar_o_crear(nombre, folder_id, ruta_local):
+    """Si el archivo ya existe en Drive lo ACTUALIZA; si no, lo crea."""
+    media = MediaFileUpload(ruta_local, resumable=True)
+    ex = buscar_archivo(nombre, folder_id)
+    if ex:
+        drive.files().update(fileId=ex["id"], media_body=media).execute()
+    else:
+        drive.files().create(body={"name": nombre, "parents": [folder_id]},
+                             media_body=media, fields="id").execute()
+
 def mover_archivo(file_id, nuevo_parent):
-    """Mueve un archivo a otra carpeta (para sacar los .txt ya procesados del input)."""
+    """Mueve un .txt ya procesado para dejar limpio el input."""
     meta = drive.files().get(fileId=file_id, fields="parents").execute()
-    prev = ",".join(meta.get("parents", []))
     drive.files().update(fileId=file_id, addParents=nuevo_parent,
-                         removeParents=prev, fields="id").execute()
+                         removeParents=",".join(meta.get("parents", [])), fields="id").execute()
 
 print("Funciones de Drive listas")
-
-
 #cuarto
 
 def _norm(s):
@@ -116,14 +127,18 @@ print("Funciones de cálculo listas")
 
 #quinto
 
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
+from datetime import datetime, timezone, timedelta
 
-def _hora_bogota():
-    return datetime.now(timezone(timedelta(hours=-5)))
-
+def _hora_bogota(): return datetime.now(timezone(timedelta(hours=-5)))
 def _sheet_name(x):
     n = re.sub(r'[\\/*?:\[\]]', "_", str(x)).strip()[:31]
     return n or "SIN_NOMBRE"
+def _v(x):  # convierte numpy -> python nativo para openpyxl
+    return x.item() if hasattr(x, "item") else x
 
+# ---------- PASO 1: reporte general (hojas por comprobante) ----------
 def escribir_hoja_comprobante(xw, sheet, sub, titulo, ts, cols):
     piv = (sub.groupby([cols["cuenta"], cols["tipo"], cols["desc"]], dropna=False)
               .agg(**{"Suma de Debito":  ("_deb", "sum"),
@@ -139,59 +154,58 @@ def escribir_hoja_comprobante(xw, sheet, sub, titulo, ts, cols):
     pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
                   "Valor": [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
     ws = xw.sheets[sheet]; ws.cell(1, 1, titulo); ws.cell(2, 1, f"Generado: {ts}")
-    return {"Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
-            "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
-
-def escribir_hoja_iva(xw, sheet, sub, cuenta_iva, ts):
-    """sub = datos ya procesados (columnas fijas del CSV de acumulación)."""
-    ing = sub[sub["Extrae"] == "4"]    
-    piv = (ing.groupby(["Cuenta", "Descripción transacción"], dropna=False)
-              .agg(**{"Suma Débito":  ("Debito", "sum"),
-                      "Suma Crédito": ("Credito", "sum"),
-                      "Suma Neto":    ("Neto", "sum")})
-              .reset_index()
-              .rename(columns={"Cuenta": "Cuenta Ingreso",
-                               "Descripción transacción": "Descripción Transacción"}))
-    piv.insert(0, "Cuenta IVA", cuenta_iva)
-    piv = piv[["Cuenta IVA", "Cuenta Ingreso", "Descripción Transacción",
-               "Suma Débito", "Suma Crédito", "Suma Neto"]]
-    n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
-    n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum(); dif = n4 + n2
-    cur = 3
-    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False); cur += len(piv) + 2
-    pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
-                  "Valor": [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
-    ws = xw.sheets[sheet]; ws.cell(1, 1, f"CUENTA IVA: {cuenta_iva}"); ws.cell(2, 1, f"Generado: {ts}")
-    return {"Cuenta IVA": cuenta_iva,
-            "Cuentas de ingreso": ", ".join(sorted(ing["Cuenta"].astype(str).unique())) or "(ninguna)",
-            "Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
+    return {"Comprobante": sheet, "Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
             "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
 
 def escribir_resumen_general(xw, filas, ts):
     pd.DataFrame(filas).to_excel(xw, sheet_name="RESUMEN_GENERAL", startrow=2, index=False)
     xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
 
-print("Funciones de Fase 1 y Fase 2 listas")
+# ---------- PASO 2: hoja por cuenta IVA dentro del Excel del comprobante ----------
+def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
+    ing = sub[sub["Extrae"] == "4"]   # cuentas de ingreso = las que empiezan por 4
+    piv = (ing.groupby([cols["cuenta"], cols["desc"]], dropna=False)
+              .agg(**{"Suma Débito":  ("_deb", "sum"),
+                      "Suma Crédito": ("_cre", "sum"),
+                      "Suma Neto":    ("Neto", "sum")})
+              .reset_index()
+              .rename(columns={cols["cuenta"]: "Cuenta Ingreso", cols["desc"]: "Descripción Transacción"}))
+    piv.insert(0, "Cuenta IVA", cuenta_iva)
+    piv = piv[["Cuenta IVA", "Cuenta Ingreso", "Descripción Transacción",
+               "Suma Débito", "Suma Crédito", "Suma Neto"]]
+    n4 = float(sub.loc[sub["Extrae"] == "4", "Neto"].sum())
+    n2 = float(sub.loc[sub["Extrae"] == "2", "Neto"].sum()); dif = n4 + n2
+    ws.cell(1, 1, titulo); ws.cell(2, 1, f"Generado: {ts}")
+    fila = 4
+    for r in dataframe_to_rows(piv, index=False, header=True):
+        for j, val in enumerate(r, start=1):
+            ws.cell(fila, j, _v(val))
+        fila += 1
+    fila += 1
+    for concepto, valor in [("Concepto", "Valor"), ("Neto cuentas 4", n4),
+                            ("Neto cuentas 2", n2), ("DIFERENCIA (4+2)", dif)]:
+        ws.cell(fila, 1, concepto); ws.cell(fila, 2, valor); fila += 1
 
+print(" Funciones de Paso 1 y Paso 2 listas")
 #sexto
+assert FOLDER_ID.strip(), " Falta el FOLDER_ID en el Bloque 2"
 
-assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 2"
-
-f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTES,  FOLDER_ID)
-f_ptxt = obtener_o_crear_subcarpeta(SUB_PROC_TXT,  FOLDER_ID)
-f_pdat = obtener_o_crear_subcarpeta(SUB_PROC_DATA, FOLDER_ID)
+f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTE, FOLDER_ID)
+f_comp = obtener_o_crear_subcarpeta(SUB_COMPROBANTES, FOLDER_ID)
+f_proc = obtener_o_crear_subcarpeta(SUB_TXT_PROC, FOLDER_ID)
 
 archivos = listar_archivos(FOLDER_ID)
-assert archivos, "No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
-print(f"Lote actual: {len(archivos)} archivo(s)")
+assert archivos, " No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
+print(f" Lote actual: {len(archivos)} archivo(s)")
 
+# 1) Consolidar
 frames = []
 for f in archivos:
     local = descargar(f["id"], f"/content/{f['name']}")
-    d = leer_txt(local); d.columns = d.columns.str.strip()
-    frames.append(d)
+    d = leer_txt(local); d.columns = d.columns.str.strip(); frames.append(d)
 master = pd.concat(frames, ignore_index=True)
 
+# 2) Extrae y Neto
 cC = _col(master, COL_CUENTA);  cD = _col(master, COL_DEBITO)
 cR = _col(master, COL_CREDITO); cT = _col(master, COL_TIPO); cX = _col(master, COL_DESCTRX)
 deb, cre = _a_numero(master[cD]), _a_numero(master[cR])
@@ -202,41 +216,48 @@ master["Neto"] = np.select(
 master["_deb"], master["_cre"] = deb, cre
 cols = {"cuenta": cC, "tipo": cT, "desc": cX}
 
+# 3) Cuenta IVA = la ÚNICA que empieza por 2
 cuentas2 = sorted(master.loc[master["Extrae"] == "2", cC].astype(str).str.strip().unique())
-assert len(cuentas2) != 0, "Este lote NO tiene ninguna cuenta que empiece por 2 (Cuenta IVA)."
-assert len(cuentas2) == 1, f"Hay más de una cuenta que empieza por 2: {cuentas2}. Sube un lote por caso."
+assert len(cuentas2) != 0, " El lote NO tiene cuenta que empiece por 2."
+assert len(cuentas2) == 1, f" Hay más de una cuenta que empieza por 2: {cuentas2}. Sube un lote por caso."
 cuenta_iva = cuentas2[0]
-print(f"🔑 Cuenta IVA del lote: {cuenta_iva}")
+print(f" Cuenta IVA del lote: {cuenta_iva}")
 
 ts    = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
 sello = _hora_bogota().strftime("%Y-%m-%d_%H%M%S")
 
+# ===== PASO 1: reporte general (un Excel nuevo por lote) =====
 ruta_rep = f"/content/{cuenta_iva}_{sello}.xlsx"; filas = []
 with pd.ExcelWriter(ruta_rep, engine="openpyxl") as xw:
     pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
     for tipo, gt in master.groupby(cT):
-        r = escribir_hoja_comprobante(xw, _sheet_name(tipo), gt,
-                          f"COMPROBANTE: {tipo}  |  CUENTA IVA: {cuenta_iva}", ts, cols)
-        filas.append({"Comprobante": tipo, **r})
+        filas.append(escribir_hoja_comprobante(xw, _sheet_name(tipo), gt,
+                          f"COMPROBANTE: {tipo}  |  CUENTA IVA: {cuenta_iva}", ts, cols))
     escribir_resumen_general(xw, filas, ts)
 subir(ruta_rep, f_rep)
-print(f"Reporte general subido: {cuenta_iva}_{sello}.xlsx")
+print(f" Paso 1 listo: {cuenta_iva}_{sello}.xlsx")
 
-slim = pd.DataFrame({
-    "Cuenta IVA": cuenta_iva,
-    "Cuenta": master[cC].astype(str).str.strip(),
-    "Descripción transacción": master[cX].astype(str),
-    "Debito": master["_deb"], "Credito": master["_cre"],
-    "Neto": master["Neto"], "Extrae": master["Extrae"]})
-ruta_csv = f"/content/{cuenta_iva}_{sello}.csv"
-slim.to_csv(ruta_csv, index=False)
-subir(ruta_csv, f_pdat)
+# ===== PASO 2: acumular una hoja por cuenta IVA en cada Excel de comprobante =====
+for tipo, gt in master.groupby(cT):
+    nombre = f"{_sheet_name(tipo)}.xlsx"; local = f"/content/{nombre}"
+    ex = buscar_archivo(nombre, f_comp)
+    if ex:                                   # ya existe -> lo bajo y le agrego hoja
+        descargar(ex["id"], local); wb = openpyxl.load_workbook(local)
+    else:                                    # no existe -> libro nuevo
+        wb = openpyxl.Workbook(); wb.remove(wb.active)
+    sh = _sheet_name(cuenta_iva)
+    if sh in wb.sheetnames: del wb[sh]       # si esa cuenta ya estaba, la reemplazo
+    ws = wb.create_sheet(title=sh)
+    escribir_hoja_iva_ws(ws, gt, cuenta_iva,
+                         f"CUENTA IVA: {cuenta_iva}  |  COMPROBANTE: {tipo}", ts, cols)
+    wb.save(local)
+    actualizar_o_crear(nombre, f_comp, local)
+print(f" Paso 2 listo: hoja '{cuenta_iva}' agregada en {master[cT].nunique()} comprobante(s)")
 
+# ===== Limpiar input: mover los .txt procesados =====
 for f in archivos:
-    mover_archivo(f["id"], f_ptxt)
-
-print(f" Lote procesado y guardado. Sube el siguiente lote y vuelve a correr esta Parte 1.")
-
+    mover_archivo(f["id"], f_proc)
+print(" Lote terminado. Sube el siguiente y vuelve a correr el Bloque 6.")
 #septimo
 f_hiva = obtener_o_crear_subcarpeta(SUB_HOJAS_IVA, FOLDER_ID)
 f_pdat = obtener_o_crear_subcarpeta(SUB_PROC_DATA, FOLDER_ID)
