@@ -188,11 +188,14 @@ def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
 
 print(" Funciones de Paso 1 y Paso 2 listas")
 #sexto
-assert FOLDER_ID.strip(), " Falta el FOLDER_ID en el Bloque 2"
+#sexto
+assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 2"
 
-f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTE, FOLDER_ID)
-f_comp = obtener_o_crear_subcarpeta(SUB_COMPROBANTES, FOLDER_ID)
-f_proc = obtener_o_crear_subcarpeta(SUB_TXT_PROC, FOLDER_ID)
+# Las carpetas de salida se crean AL MISMO NIVEL que tu carpeta de TXT (no adentro)
+padre = drive.files().get(fileId=FOLDER_ID, fields="parents").execute().get("parents", ["root"])[0]
+f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTE, padre)
+f_comp = obtener_o_crear_subcarpeta(SUB_COMPROBANTES, padre)
+f_proc = obtener_o_crear_subcarpeta(SUB_TXT_PROC, padre)
 
 archivos = listar_archivos(FOLDER_ID)
 assert archivos, " No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
