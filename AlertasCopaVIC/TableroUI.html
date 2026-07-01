@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    :root {
+      --dav-rojo: #ED1C27;
+      --bg-gris: #f2f3f5;
+      --card-bg: #ffffff;
+      --text-main: #333333;
+      --text-muted: #888888;
+      --kpi-bg: #f5f4f0;
+    }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      background-color: var(--bg-gris);
+      margin: 0; padding: 20px; color: var(--text-main);
+    }
+    .dashboard { max-width: 1000px; margin: 0 auto; }
+    
+    /* Encabezado */
+    .header {
+      background-color: var(--dav-rojo); color: white;
+      padding: 18px 24px; border-radius: 10px;
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .header h1 { margin: 0; font-size: 22px; }
+    .btn-filter { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+
+    /* KPIs */
+    .kpi-grid { display: flex; gap: 15px; margin-bottom: 20px; }
+    .kpi-card {
+      background: var(--kpi-bg); flex: 1; padding: 20px;
+      border-radius: 8px; border: 1px solid #e5e4e0;
+    }
+    .kpi-title { font-size: 14px; color: var(--text-muted); margin-bottom: 8px; }
+    .kpi-value { font-size: 34px; font-weight: bold; margin: 0; }
+    .val-blue { color: #185FA5; } .val-orange { color: #BA7517; } .val-green { color: #3B6D11; } .val-black { color: #222; }
+
+    /* Contenedores blancos */
+    .panel {
+      background: var(--card-bg); border-radius: 10px; padding: 20px;
+      border: 1px solid #e6e6e6; margin-bottom: 20px;
+    }
+    .panel h2 { margin: 0 0 15px 0; font-size: 16px; color: #222; }
+
+    /* Tabla */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 12px 8px; border-bottom: 1px solid #eee; color: var(--text-muted); font-weight: normal; }
+    td { padding: 12px 8px; border-bottom: 1px solid #f9f9f9; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+    .pill { background: #f0f0f0; color: #555; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+    .tabla-footer { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+
+    /* Gráficos Grid */
+    .charts-grid { display: flex; gap: 20px; }
+    .chart-box { flex: 1; }
+    
+    /* Gráfico Vertical (Fechas) */
+    .bar-chart-v { display: flex; align-items: flex-end; gap: 10px; height: 120px; padding-top: 20px; border-bottom: 2px solid #eee; }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+    .bar-fill-v { width: 30px; background-color: #3b82f6; border-radius: 4px 4px 0 0; }
+    .bar-label { margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+
+    /* Gráfico Horizontal (Impuestos) */
+    .bar-chart-h { margin-bottom: 15px; }
+    .bar-header { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; color: #444; }
+    .bar-track { width: 100%; background: #eee; height: 8px; border-radius: 4px; overflow: hidden; }
+    .bar-fill-h { height: 100%; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <? if(!datos) { ?> <p>No hay datos disponibles.</p> <? return; } ?>
+  <div class="dashboard">
+    
+    <div class="header">
+      <h1>Tablero de vencimientos tributarios · julio 2026</h1>
+      <button class="btn-filter">Próximos 15 días ▼</button>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-title">Obligaciones de julio</div><div class="kpi-value val-blue"><?= datos.kpis.total ?></div></div>
+      <div class="kpi-card"><div class="kpi-title">Próximas (&le;15 días)</div><div class="kpi-value val-orange"><?= datos.kpis.proximas ?></div></div>
+      <div class="kpi-card"><div class="kpi-title">Vencidas</div><div class="kpi-value val-green"><?= datos.kpis.vencidas ?></div></div>
+      <div class="kpi-card"><div class="kpi-title">Compañías</div><div class="kpi-value val-black"><?= datos.kpis.companias ?></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Obligaciones por prioridad</h2>
+      <table>
+        <tr><th>Compañía</th><th>Impuesto</th><th>Vence</th><th>Días</th><th>Gestión</th></tr>
+        <? datos.tabla.forEach(r => { ?>
+        <tr>
+          <td><span class="dot" style="background-color: <?= r.colorSemaforo ?>;"></span><?= r.compania ?></td>
+          <td><?= r.impuesto ?></td>
+          <td><?= r.fechaStr ?></td>
+          <td><?= r.dias ?></td>
+          <td><span class="pill"><?= r.estado ?></span></td>
+        </tr>
+        <? }); ?>
+      </table>
+      <? if(datos.totalOcultas > 0) { ?>
+        <div class="tabla-footer">+ <?= datos.totalOcultas ?> obligaciones más...</div>
+      <? } ?>
+    </div>
+
+    <div class="charts-grid">
+      <div class="panel chart-box">
+        <h2>Obligaciones por fecha</h2>
+        <div class="bar-chart-v">
+          <? 
+            const maxValFechas = Math.max(...Object.values(datos.fechas), 1);
+            Object.keys(datos.fechas).sort((a,b) => Number(a)-Number(b)).forEach(dia => { 
+              const altura = (datos.fechas[dia] / maxValFechas) * 100;
+          ?>
+            <div class="bar-col">
+              <div class="bar-fill-v" style="height: <?= altura ?>%;"></div>
+              <div class="bar-label"><?= dia ?></div>
+            </div>
+          <? }); ?>
+        </div>
+      </div>
+
+      <div class="panel chart-box">
+        <h2>Obligaciones por impuesto</h2>
+        <div style="margin-top: 20px;">
+          <? 
+            const colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'];
+            let cIdx = 0;
+            const maxValImp = Math.max(...Object.values(datos.impuestos), 1);
+            Object.keys(datos.impuestos).forEach(imp => { 
+              const ancho = (datos.impuestos[imp] / maxValImp) * 100;
+          ?>
+            <div class="bar-chart-h">
+              <div class="bar-header"><span><?= imp ?></span><span><?= datos.impuestos[imp] ?></span></div>
+              <div class="bar-track"><div class="bar-fill-h" style="width: <?= ancho ?>%; background-color: <?= colors[cIdx++ % colors.length] ?>;"></div></div>
+            </div>
+          <? }); ?>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
