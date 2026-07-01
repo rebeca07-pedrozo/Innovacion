@@ -61,9 +61,17 @@ function obtenerDatosTablero_() {
 }
 
 // Lanza esta función desde el editor para ver el tablero en tu navegador
+// Lanza esta función desde el editor para ver el tablero en tu navegador
 function probarTablero() {
   const t = HtmlService.createTemplateFromFile('TableroUI');
   t.datos = obtenerDatosTablero_();
-  const html = t.evaluate().setTitle('Tablero de Vencimientos · Davivienda').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  
+  // AQUÍ ESTÁ LA MAGIA: Forzamos el ancho y alto del modal
+  const html = t.evaluate()
+    .setTitle('Tablero de Vencimientos · Davivienda')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setWidth(1400)   // Ancho gigante
+    .setHeight(800);  // Alto gigante
+    
   SpreadsheetApp.getUi().showModalDialog(html, 'Vista Previa del Tablero');
 }
