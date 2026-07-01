@@ -260,31 +260,3 @@ print(f" Paso 2 listo: hoja '{cuenta_iva}' agregada en {master[cT].nunique()} co
 for f in archivos:
     mover_archivo(f["id"], f_proc)
 print(" Lote terminado. Sube el siguiente y vuelve a correr el Bloque 6.")
-#septimo
-f_hiva = obtener_o_crear_subcarpeta(SUB_HOJAS_IVA, FOLDER_ID)
-f_pdat = obtener_o_crear_subcarpeta(SUB_PROC_DATA, FOLDER_ID)
-
-# Leer TODO lo acumulado
-csvs = listar_archivos(_id_de_subcarpeta := f_pdat, extensiones=(".csv",))
-# (si tu listar_archivos no recibe un folder distinto, usa la versión de abajo)
-proc = drive.files().list(q=f"'{f_pdat}' in parents and trashed=false",
-                          fields="files(id,name)").execute().get("files", [])
-assert proc, "No hay datos procesados. Corre la Parte 1 con al menos un lote."
-
-partes = []
-for f in proc:
-    local = descargar(f["id"], f"/content/{f['name']}")
-    partes.append(pd.read_csv(local, dtype={"Cuenta IVA": str, "Cuenta": str, "Extrae": str}))
-total = pd.concat(partes, ignore_index=True)
-print(f"Consolidando {total['Cuenta IVA'].nunique()} cuenta(s) IVA de {len(proc)} lote(s)")
-
-ts = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
-ruta = f"/content/{ARCHIVO_FASE2}"; resumen = []
-with pd.ExcelWriter(ruta, engine="openpyxl") as xw:
-    pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
-    for cuenta_iva, sub in total.groupby("Cuenta IVA"):
-        r = escribir_hoja_iva(xw, _sheet_name(cuenta_iva), sub, cuenta_iva, ts)
-        resumen.append(r)
-    escribir_resumen_general(xw, resumen, ts)
-subir(ruta, f_hiva)
-print(f"🎉 Listo: '{ARCHIVO_FASE2}' en la subcarpeta '{SUB_HOJAS_IVA}'.")
