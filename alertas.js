@@ -314,3 +314,193 @@ function setupTriggers() {
   ScriptApp.newTrigger('enviarAlertas').timeBased().everyDays(1).atHour(7).create();
   SpreadsheetApp.getActiveSpreadsheet().toast('Triggers diarios creados (6am y 7am).', 'Listo', 6);
 }
+
+
+/* =================== REPORTE PDF SEMANAL PARA JEFES =================== */
+
+// Envía un PDF a cada jefe con SOLO las obligaciones de sus compañías.
+function enviarReporteSemanalJefes() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const obl = ss.getSheetByName(CONFIG.HOJA_OBL);
+  if (!obl || obl.getLastRow() < 2) return;
+  const vals = obl.getDataRange().getValues();
+  const h = vals[0], idx = n => h.indexOf(n);
+
+  const porJefe = {};
+  vals.slice(1).forEach(r => {
+    const jefe = String(r[idx('correo_jefe')]).trim();
+    if (!jefe || jefe.indexOf('@') < 0) return;
+    (porJefe[jefe] = porJefe[jefe] || []).push(r);
+  });
+
+  Object.keys(porJefe).forEach(jefe => {
+    const html = construirReporteHtml_('Reporte de vencimientos tributarios', porJefe[jefe], idx);
+    const pdf = Utilities.newBlob(html, MimeType.HTML, 'Reporte.html')
+                  .getAs(MimeType.PDF).setName('Reporte_vencimientos.pdf');
+    GmailApp.sendEmail(jefe, 'Reporte semanal de vencimientos tributarios',
+      'Adjuntamos el reporte de vencimientos de tus compañías. No respondas a este correo.',
+      { name: CONFIG.REMITENTE, attachments: [pdf] });
+    registrarHistorico_(ss, { id: 'REPORTE', compania: '', tipo: 'Reporte', subtipo: 'Semanal' },
+                        jefe, 'Reporte PDF enviado');
+  });
+}
+
+// Para PROBAR el PDF ya mismo: te lo manda a ti con TODAS las obligaciones.
+function enviarReportePrueba() {
+  const CORREO_PRUEBA = 'rebeca.pedrozo@davivienda.com';   // cámbialo si quieres
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const obl = ss.getSheetByName(CONFIG.HOJA_OBL);
+  const vals = obl.getDataRange().getValues();
+  const h = vals[0], idx = n => h.indexOf(n);
+  const html = construirReporteHtml_('Reporte de vencimientos (prueba)', vals.slice(1), idx);
+  const pdf = Utilities.newBlob(html, MimeType.HTML, 'Reporte.html')
+                .getAs(MimeType.PDF).setName('Reporte_vencimientos.pdf');
+  GmailApp.sendEmail(CORREO_PRUEBA, 'Reporte de vencimientos (prueba)',
+    'Adjunto el reporte de prueba en PDF.', { name: CONFIG.REMITENTE, attachments: [pdf] });
+}
+
+// Construye el HTML del reporte (resumen + detalle) a partir de un grupo de filas.
+function construirReporteHtml_(titulo, filas, idx) {
+  let total = filas.length, vencidas = 0, criticas = 0, proximas = 0, presentadas = 0;
+  filas.forEach(r => {
+    const dias = Number(r[idx('dias_restantes')]);
+    if (r[idx('estado')] === 'Presentado') { presentadas++; return; }
+    if (dias < 0) vencidas++; else if (dias <= 3) criticas++;
+    if (dias >= 0 && dias <= 15) proximas++;
+  });
+
+  const orden = filas.slice().sort((a, b) => {
+    const pa = a[idx('estado')] === 'Presentado' ? 1 : 0;
+    const pb = b[idx('estado')] === 'Presentado' ? 1 : 0;
+    if (pa !== pb) return pa - pb;
+    return Number(a[idx('dias_restantes')]) - Number(b[idx('dias_restantes')]);
+  });
+
+  let detalle = '';
+  orden.forEach(r => {
+    const dias = Number(r[idx('dias_restantes')]);
+    const col = semColorPdf_(r[idx('estado')], dias);
+    detalle +=
+      '<tr>' +
+      '<td style="padding:7px 6px;border-bottom:1px solid #eee;"><span style="color:' + col + ';font-size:14px;">&#9679;</span></td>' +
+      '<td style="padding:7px 6px;border-bottom:1px solid #eee;">' + r[idx('compania')] + '</td>' +
+      '<td style="padding:7px 6px;border-bottom:1px solid #eee;">' + r[idx('tipo_obligacion')] + ' &middot; ' + r[idx('subtipo')] + '</td>' +
+      '<td style="padding:7px 6px;border-bottom:1px solid #eee;">' + fmtFechaEs_(r[idx('fecha_limite')]) + '</td>' +
+      '<td style="padding:7px 6px;border-bottom:1px solid #eee;text-align:right;">' + dias + '</td>' +
+      '<td style="padding:7px 6px;border-bottom:1px solid #eee;">' + r[idx('estado')] + '</td>' +
+      '</tr>';
+  });
+
+  return '' +
+  '<div style="font-family:Arial,Helvetica,sans-serif;color:#333;">' +
+  '<table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    '<td style="background:#ED1C27;padding:16px 20px;color:#fff;font-size:18px;font-weight:bold;">Davivienda &nbsp;&middot;&nbsp; ' + titulo + '</td>' +
+    '<td style="background:#ED1C27;padding:16px 20px;color:#fff;font-size:12px;text-align:right;">Generado el ' + fmtFechaEs_(new Date()) + '</td>' +
+  '</tr></table>' +
+  '<table width="100%" cellspacing="8" cellpadding="0" style="margin-top:14px;"><tr>' +
+    kpi_('Total obligaciones', total, '#185FA5') +
+    kpi_('Próximas (&le;15 días)', proximas, '#BA7517') +
+    kpi_('Vencidas', vencidas, '#A32D2D') +
+    kpi_('Presentadas', presentadas, '#3B6D11') +
+  '</tr></table>' +
+  '<h3 style="margin:22px 4px 8px;font-size:15px;color:#222;">Detalle de obligaciones</h3>' +
+  '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">' +
+    '<tr style="color:#888;font-size:12px;">' +
+      '<th style="padding:6px;"></th>' +
+      '<th style="padding:6px;text-align:left;">Compañía</th>' +
+      '<th style="padding:6px;text-align:left;">Impuesto</th>' +
+      '<th style="padding:6px;text-align:left;">Vence</th>' +
+      '<th style="padding:6px;text-align:right;">Días</th>' +
+      '<th style="padding:6px;text-align:left;">Estado</th></tr>' +
+    detalle +
+  '</table>' +
+  '<p style="margin-top:16px;font-size:11px;color:#999;">Reporte automático del Sistema de Alertas de Vencimientos Tributarios &middot; Davivienda.</p>' +
+  '</div>';
+}
+
+function kpi_(label, valor, color) {
+  return '<td width="25%" valign="top" style="background:#F1EFE8;padding:12px 14px;border-radius:8px;">' +
+    '<div style="font-size:12px;color:#5F5E5A;">' + label + '</div>' +
+    '<div style="font-size:24px;font-weight:bold;color:' + color + ';margin-top:4px;">' + valor + '</div></td>';
+}
+
+function semColorPdf_(estado, dias) {
+  if (estado === 'Presentado') return '#639922';
+  if (dias < 0)  return '#791F1F';
+  if (dias <= 3) return '#E24B4A';
+  if (dias <= 15) return '#EF9F27';
+  return '#639922';
+}
+
+function fmtFechaEs_(d) {
+  if (!(d instanceof Date)) return '';
+  const m = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return d.getDate() + ' ' + m[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+// Programa el envío automático cada lunes a las 7am.
+function setupTriggerReporte() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'enviarReporteSemanalJefes') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('enviarReporteSemanalJefes')
+    .timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Reporte semanal programado: lunes 7am', 'Listo', 6);
+}
+
+//datos nuevos
+
+/* ===== CARGA DATOS REALES DE JULIO (correr una sola vez para la demo) ===== */
+function cargarDatosJulio() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const obl = obtenerHoja_(ss, CONFIG.HOJA_OBL);
+  obl.clear();
+
+  // [compania, nit, tipo, subtipo, dia_julio]
+  const base = [
+    ['FIDUCIARIA DAVIVIENDA','800182281', 9],
+    ['EDICIONES GAMMA S.A.','860062001', 9],
+    ['EPAYCO.COM SAS','900471052', 10],
+    ['Davivienda Capital S.A.','901929182', 10],
+    ['PROMOCIONES Y COBRANZAS BEL S.A.S.','860354473', 13],
+    ['BANCO DAVIVIENDA','860034313', 13],
+    ['VC INVESTMENTS S.A.S.','901321213', 13],
+    ['Multiacciones','900122793', 13],
+    ['CORREDORES DAVIVIENDA','860079174', 14],
+    ['Davibank S.A.S.','860034594', 14],
+    ['CORPORACION FINANCIERA DAVIVIENDA','901323565', 15],
+    ['Fiduciaria Davibank','800144467', 17],
+    ['INVERSIONES DATIO S.A.S.','901667807', 17],
+    ['Davivienda Group S.A.','901929057', 17],
+    ['COBRANZAS SIGMA','900383098', 21],
+    ['RENTING DAVIVIENDA','901913509', 22],
+    ['Davibank Securities SA','830504700', 23],
+    ['INVERSIONES CFD S.A.S.','901475500', 23]
+  ];
+
+  const impuestos = [
+    { tipo: 'IVA Bimestral',        subtipo: '3B 2026',   key: 'IVA-3B',  crit: 4 },
+    { tipo: 'Retención en la Fuente', subtipo: 'Junio 2026', key: 'RTF-JUN', crit: 4 }
+  ];
+
+  const filas = [COLS_OBL];
+  base.forEach((c, i) => {
+    const codigo = 'JUL-' + String(i + 1).padStart(2, '0');
+    impuestos.forEach(imp => {
+      filas.push([
+        codigo + '-' + imp.key, codigo, c[0], '', '', c[1], '', 'GC',
+        imp.tipo, imp.subtipo, new Date(2026, 6, c[2]),  // 6 = julio
+        imp.crit, 0, '', 'Pendiente', '', '', '', '', ''
+      ]);
+    });
+  });
+
+  obl.getRange(1, 1, filas.length, COLS_OBL.length).setValues(filas);
+  obl.getRange(1, 1, 1, COLS_OBL.length).setFontWeight('bold');
+  obl.setFrozenRows(1);
+  actualizarEstados();  // calcula días, semáforo y score
+  ss.toast((filas.length - 1) + ' obligaciones de julio cargadas', 'Listo', 6);
+}
+
+
+
