@@ -12,7 +12,6 @@ print("Conectado a Google Drive")
 
 
 #segundo 
-# ===================== AQUÍ PONES TU INFORMACIÓN =====================
 FOLDER_ID = ""          # <<<<<< ID de tu carpeta de Drive (donde dejas los .txt del lote)
 
 SEPARADOR       = ","   # separador del txt:  ","   "\t"   "|"   ";"
@@ -29,7 +28,16 @@ COL_DESCTRX = "Descripción transacción"
 SUB_REPORTE       = "REPORTE_GENERAL"   # Paso 1
 SUB_COMPROBANTES  = "COMPROBANTES"      # Paso 2 (AH.xlsx, BR.xlsx, ...)
 SUB_TXT_PROC      = "TXT_PROCESADOS"    # acá se mueven los .txt ya procesados
-# =====================================================================
+
+padre = (drive.files().get(fileId=FOLDER_ID, fields="parents")
+              .execute(num_retries=5).get("parents", ["root"])[0])
+f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTE, padre)
+f_comp = obtener_o_crear_subcarpeta(SUB_COMPROBANTES, padre)
+f_proc = obtener_o_crear_subcarpeta(SUB_TXT_PROC, padre)
+print("Carpetas listas (ya no se vuelven a crear):")
+print("   REPORTE_GENERAL:", f_rep)
+print("   COMPROBANTES   :", f_comp)
+print("   TXT_PROCESADOS :", f_proc)
 print("Configuración lista")
 
 #tercero#tercero
@@ -204,21 +212,18 @@ def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
         for j, val in enumerate(r, start=1): ws.cell(fila, j, _v(val))
         fila += 1
 
-print("✅ Funciones de Paso 1 y Paso 2 listas (con detalle del TXT al final)")
+print("Funciones de Paso 1 y Paso 2 listas (con detalle del TXT al final)")
 
 #sexto
 assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 2"
-
-# Las carpetas de salida se crean AL MISMO NIVEL que tu carpeta de TXT (no adentro)
-padre = drive.files().get(fileId=FOLDER_ID, fields="parents").execute().get("parents", ["root"])[0]
-f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTE, padre)
-f_comp = obtener_o_crear_subcarpeta(SUB_COMPROBANTES, padre)
-f_proc = obtener_o_crear_subcarpeta(SUB_TXT_PROC, padre)
+try:
+    f_rep, f_comp, f_proc
+except NameError:
+    raise RuntimeError("Primero corre la celda 'Preparar carpetas' (una vez por sesión).")
 
 archivos = listar_archivos(FOLDER_ID)
-assert archivos, " No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
-print(f" Lote actual: {len(archivos)} archivo(s)")
-
+assert archivos, "No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
+print(f"Lote actual: {len(archivos)} archivo(s)")
 # 1) Consolidar
 frames = []
 for f in archivos:
