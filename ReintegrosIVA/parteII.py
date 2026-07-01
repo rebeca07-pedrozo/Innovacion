@@ -135,8 +135,14 @@ def _hora_bogota(): return datetime.now(timezone(timedelta(hours=-5)))
 def _sheet_name(x):
     n = re.sub(r'[\\/*?:\[\]]', "_", str(x)).strip()[:31]
     return n or "SIN_NOMBRE"
-def _v(x):  # convierte numpy -> python nativo para openpyxl
+def _v(x):  # numpy -> python nativo para openpyxl
     return x.item() if hasattr(x, "item") else x
+def _cols_txt(df):  # columnas originales del TXT (sin las internas _deb/_cre)
+    return [c for c in df.columns if not c.startswith("_")]
+def _bloque(xw, sheet, df, startrow, gap=2):
+    """Escribe un DataFrame y devuelve la fila (0-based) libre siguiente."""
+    df.to_excel(xw, sheet_name=sheet, startrow=startrow, index=False)
+    return startrow + len(df) + 1 + gap
 
 # ---------- PASO 1: reporte general (hojas por comprobante) ----------
 def escribir_hoja_comprobante(xw, sheet, sub, titulo, ts, cols):
@@ -149,21 +155,29 @@ def escribir_hoja_comprobante(xw, sheet, sub, titulo, ts, cols):
                                cols["desc"]: "Descripción transacción"}))
     n4 = sub.loc[sub["Extrae"] == "4", "Neto"].sum()
     n2 = sub.loc[sub["Extrae"] == "2", "Neto"].sum(); dif = n4 + n2
-    cur = 3
-    piv.to_excel(xw, sheet_name=sheet, startrow=cur, index=False); cur += len(piv) + 2
-    pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
-                  "Valor": [n4, n2, dif]}).to_excel(xw, sheet_name=sheet, startrow=cur, index=False)
-    ws = xw.sheets[sheet]; ws.cell(1, 1, titulo); ws.cell(2, 1, f"Generado: {ts}")
+    cuadre = pd.DataFrame({"Concepto": ["Neto cuentas 4", "Neto cuentas 2", "DIFERENCIA (4+2)"],
+                           "Valor": [n4, n2, dif]})
+    row = 3
+    row = _bloque(xw, sheet, piv, row)                 # tabla dinámica
+    row = _bloque(xw, sheet, cuadre, row)              # cuadro de sumas
+    ws = xw.sheets[sheet]
+    ws.cell(row + 1, 1, "DETALLE (líneas del TXT)")    # rótulo
+    _bloque(xw, sheet, sub[_cols_txt(sub)], row + 1, gap=0)   # líneas crudas del TXT, al final
+    ws.cell(1, 1, titulo); ws.cell(2, 1, f"Generado: {ts}")
     return {"Comprobante": sheet, "Neto_4": n4, "Neto_2": n2, "Diferencia": dif,
             "Estado": "OK" if abs(dif) <= TOLERANCIA else ">>> REVISAR"}
 
-def escribir_resumen_general(xw, filas, ts):
-    pd.DataFrame(filas).to_excel(xw, sheet_name="RESUMEN_GENERAL", startrow=2, index=False)
-    xw.sheets["RESUMEN_GENERAL"].cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
+def escribir_resumen_general(xw, filas, ts, detalle_txt):
+    row = 2
+    row = _bloque(xw, "RESUMEN_GENERAL", pd.DataFrame(filas), row)
+    ws = xw.sheets["RESUMEN_GENERAL"]
+    ws.cell(1, 1, f"RESUMEN GENERAL — Generado: {ts}")
+    ws.cell(row + 1, 1, "DETALLE (todas las líneas del TXT)")
+    _bloque(xw, "RESUMEN_GENERAL", detalle_txt, row + 1, gap=0)  # TODO el TXT del lote, al final
 
 # ---------- PASO 2: hoja por cuenta IVA dentro del Excel del comprobante ----------
 def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
-    ing = sub[sub["Extrae"] == "4"]   # cuentas de ingreso = las que empiezan por 4
+    ing = sub[sub["Extrae"] == "4"]
     piv = (ing.groupby([cols["cuenta"], cols["desc"]], dropna=False)
               .agg(**{"Suma Débito":  ("_deb", "sum"),
                       "Suma Crédito": ("_cre", "sum"),
@@ -177,16 +191,21 @@ def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
     n2 = float(sub.loc[sub["Extrae"] == "2", "Neto"].sum()); dif = n4 + n2
     ws.cell(1, 1, titulo); ws.cell(2, 1, f"Generado: {ts}")
     fila = 4
-    for r in dataframe_to_rows(piv, index=False, header=True):
-        for j, val in enumerate(r, start=1):
-            ws.cell(fila, j, _v(val))
+    for r in dataframe_to_rows(piv, index=False, header=True):       # tabla dinámica
+        for j, val in enumerate(r, start=1): ws.cell(fila, j, _v(val))
         fila += 1
     fila += 1
-    for concepto, valor in [("Concepto", "Valor"), ("Neto cuentas 4", n4),
+    for concepto, valor in [("Concepto", "Valor"), ("Neto cuentas 4", n4),   # cuadro de sumas
                             ("Neto cuentas 2", n2), ("DIFERENCIA (4+2)", dif)]:
         ws.cell(fila, 1, concepto); ws.cell(fila, 2, valor); fila += 1
+    fila += 1
+    ws.cell(fila, 1, "DETALLE (líneas del TXT)"); fila += 1                    # rótulo
+    for r in dataframe_to_rows(sub[_cols_txt(sub)], index=False, header=True):  # líneas crudas, al final
+        for j, val in enumerate(r, start=1): ws.cell(fila, j, _v(val))
+        fila += 1
 
-print(" Funciones de Paso 1 y Paso 2 listas")
+print("✅ Funciones de Paso 1 y Paso 2 listas (con detalle del TXT al final)")
+
 #sexto
 assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 2"
 
@@ -234,7 +253,7 @@ with pd.ExcelWriter(ruta_rep, engine="openpyxl") as xw:
     for tipo, gt in master.groupby(cT):
         filas.append(escribir_hoja_comprobante(xw, _sheet_name(tipo), gt,
                           f"COMPROBANTE: {tipo}  |  CUENTA IVA: {cuenta_iva}", ts, cols))
-    escribir_resumen_general(xw, filas, ts)
+    escribir_resumen_general(xw, filas, ts, master[_cols_txt(master)])
 subir(ruta_rep, f_rep)
 print(f" Paso 1 listo: {cuenta_iva}_{sello}.xlsx")
 
