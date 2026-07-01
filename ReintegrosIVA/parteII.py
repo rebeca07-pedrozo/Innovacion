@@ -228,7 +228,6 @@ print(f" Cuenta IVA del lote: {cuenta_iva}")
 ts    = _hora_bogota().strftime("%d/%m/%Y %H:%M:%S")
 sello = _hora_bogota().strftime("%Y-%m-%d_%H%M%S")
 
-# ===== PASO 1: reporte general (un Excel nuevo por lote) =====
 ruta_rep = f"/content/{cuenta_iva}_{sello}.xlsx"; filas = []
 with pd.ExcelWriter(ruta_rep, engine="openpyxl") as xw:
     pd.DataFrame().to_excel(xw, sheet_name="RESUMEN_GENERAL", index=False)
@@ -239,7 +238,6 @@ with pd.ExcelWriter(ruta_rep, engine="openpyxl") as xw:
 subir(ruta_rep, f_rep)
 print(f" Paso 1 listo: {cuenta_iva}_{sello}.xlsx")
 
-# ===== PASO 2: acumular una hoja por cuenta IVA en cada Excel de comprobante =====
 for tipo, gt in master.groupby(cT):
     nombre = f"{_sheet_name(tipo)}.xlsx"; local = f"/content/{nombre}"
     ex = buscar_archivo(nombre, f_comp)
@@ -256,7 +254,10 @@ for tipo, gt in master.groupby(cT):
     actualizar_o_crear(nombre, f_comp, local)
 print(f" Paso 2 listo: hoja '{cuenta_iva}' agregada en {master[cT].nunique()} comprobante(s)")
 
-# ===== Limpiar input: mover los .txt procesados =====
 for f in archivos:
     mover_archivo(f["id"], f_proc)
 print(" Lote terminado. Sube el siguiente y vuelve a correr el Bloque 6.")
+
+
+
+
