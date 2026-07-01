@@ -188,7 +188,6 @@ def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
 
 print(" Funciones de Paso 1 y Paso 2 listas")
 #sexto
-#sexto
 assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 2"
 
 # Las carpetas de salida se crean AL MISMO NIVEL que tu carpeta de TXT (no adentro)
