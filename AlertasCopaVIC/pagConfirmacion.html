@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><base target="_top"><meta charset="utf-8">
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f2f3f5;margin:0;padding:60px 16px;}
+  .card{max-width:460px;margin:0 auto;background:#fff;border:1px solid #e6e6e6;border-radius:10px;overflow:hidden;text-align:center;}
+  .head{background:#ED1C27;color:#fff;font-weight:bold;font-size:18px;padding:16px;}
+  .body{padding:30px 26px;color:#333;}
+  .ok{color:#1d9e75;margin:0 0 8px;} .bad{color:#C0392B;margin:0 0 8px;}
+</style></head>
+<body>
+  <div class="card">
+    <div class="head">Davivienda - Sistema de  Alertas Tributarias</div>
+    <div class="body">
+      <? if (ok) { ?>
+        <h2 class="ok">¡Listo!</h2>
+        <p>La obligación <b><?= id ?></b> quedó marcada como <b><?= estado ?></b>.</p>
+        <? if (estado === 'Presentado') { ?><p style="color:#666;font-size:14px;">No recibirás más alertas de este vencimiento.</p><? } ?>
+      <? } else { ?>
+        <h2 class="bad">No encontrada</h2>
+        <p>No se encontró la obligación <b><?= id ?></b>.</p>
+      <? } ?>
+    </div>
+  </div>
+</body>
+</html>
