@@ -207,17 +207,17 @@ function diagnosticarLogoBase64() {
   return archivo.getUrl();
 }
 
-
 /**
  * Genera el base64 de una imagen guardada en Drive, dado su ID de
- * archivo. Lo escribe en una hoja (no en el Logger) para que puedas
- * copiarlo completo sin que se corte por ser un string largo.
+ * archivo, y lo escribe en un GOOGLE DOC (no en una celda de Sheets,
+ * que tiene límite de 50,000 caracteres por celda y el base64 de una
+ * imagen fácilmente lo supera).
  *
  * CÓMO USAR:
  * 1. Reemplaza el ID de abajo por el ID real de tu archivo en Drive.
  * 2. Ejecuta esta función.
- * 3. Ve a la hoja "LOGO_BASE64_TEMP", celda A3 -> ahí está el string
- *    completo listo para copiar y pegar en CONFIG.LOGO_BASE64.
+ * 3. Se crea un Google Doc llamado "Base64 Logo Davivienda" en tu Drive.
+ * 4. Ábrelo, Ctrl+A (seleccionar todo), Ctrl+C (copiar), y listo.
  */
 function generarBase64DesdeDrive() {
   const idArchivo = 'PEGA_AQUI_EL_ID_DE_TU_ARCHIVO_EN_DRIVE';
@@ -227,16 +227,23 @@ function generarBase64DesdeDrive() {
   const bytes = blob.getBytes();
   const base64 = Utilities.base64Encode(bytes);
 
-  const libro = SpreadsheetApp.getActiveSpreadsheet();
-  let hoja = libro.getSheetByName('LOGO_BASE64_TEMP') || libro.insertSheet('LOGO_BASE64_TEMP');
-  hoja.clear();
-  hoja.getRange('A1').setValue('Nombre archivo: ' + archivo.getName());
-  hoja.getRange('A2').setValue('Tipo MIME: ' + blob.getContentType());
-  hoja.getRange('A3').setValue('Tamaño en bytes: ' + bytes.length);
-  hoja.getRange('A4').setValue(base64);
+  const nombreDoc = 'Base64 Logo Davivienda';
+  // Si ya existe un doc con ese nombre de una corrida anterior, lo borra primero
+  const docsExistentes = DriveApp.getFilesByName(nombreDoc);
+  while (docsExistentes.hasNext()) {
+    docsExistentes.next().setTrashed(true);
+  }
 
-  Logger.log('Listo. Revisa la hoja LOGO_BASE64_TEMP, celda A4. Bytes: ' + bytes.length);
-  SpreadsheetApp.getActiveSpreadsheet().toast('Base64 generado en hoja LOGO_BASE64_TEMP, celda A4 (' + bytes.length + ' bytes)', 'Listo', 8);
+  const doc = DocumentApp.create(nombreDoc);
+  doc.getBody().setText(base64);
+  doc.saveAndClose();
 
-  return base64;
+  Logger.log('Nombre archivo: ' + archivo.getName());
+  Logger.log('Tipo MIME: ' + blob.getContentType());
+  Logger.log('Tamaño en bytes: ' + bytes.length);
+  Logger.log('Doc creado: ' + doc.getUrl());
+
+  SpreadsheetApp.getActiveSpreadsheet().toast('Listo. Abre el Doc "Base64 Logo Davivienda" en tu Drive y copia todo su contenido.', 'Base64 generado', 10);
+
+  return doc.getUrl();
 }
