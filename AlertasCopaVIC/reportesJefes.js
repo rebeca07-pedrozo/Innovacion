@@ -107,25 +107,26 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
   const filasTablaHtml = filas.map(item => construirFilaDetalleHtml(item, mapa)).join('');
 
   const html = `
-  <html><body style="font-family:Arial, sans-serif; margin:0; padding:0; background-color:#ffffff;">
-    <table width="100%" bgcolor="${PALETA_REPORTE.HEADER_BG}" style="width:100%; background-color:${PALETA_REPORTE.HEADER_BG}; border-collapse:collapse;">
+  <html><body style="font-family:Arial, sans-serif; margin:0; padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
       <tr>
-        <td bgcolor="${PALETA_REPORTE.HEADER_BG}" style="padding:14px 24px; background-color:${PALETA_REPORTE.HEADER_BG};">
-          <img src="data:image/png;base64,${CONFIG.LOGO_BASE64}" style="height:26px;">
+        <td bgcolor="${PALETA_REPORTE.HEADER_BG}" style="background-color:${PALETA_REPORTE.HEADER_BG}; padding:14px 24px;">
+          <img src="data:image/png;base64,${CONFIG.LOGO_BASE64}" style="height:30px;">
         </td>
-        <td bgcolor="${PALETA_REPORTE.HEADER_BG}" style="padding:14px 24px; text-align:right; background-color:${PALETA_REPORTE.HEADER_BG};">
-          <img src="${CONFIG.URL_ICONO_CALENDARIO}" style="height:14px; vertical-align:middle; margin-right:5px;">
-          <span style="color:#555; font-size:12px;">Semana del ${rango.texto}</span>
+        <td bgcolor="${PALETA_REPORTE.HEADER_BG}" align="right" style="background-color:${PALETA_REPORTE.HEADER_BG}; padding:14px 24px; text-align:right;">
+          <span style="color:#555; font-size:12px;">&#128197; Semana del ${rango.texto}</span>
         </td>
       </tr>
     </table>
     <div style="padding:24px;">
       <h1 style="font-size:22px; margin:0 0 14px 0; color:#222;">Informe de resumen vencimientos semanales</h1>
-      <p style="border-left:4px solid #EF2C25; padding-left:10px; margin-bottom:22px; font-size:13px; color:#333;">
-        Resumen del estado de las obligaciones tributarias de tu equipo para esta semana.
-      </p>
+      <table cellpadding="0" cellspacing="0"><tr>
+        <td bgcolor="#EF2C25" width="4" style="background-color:#EF2C25; width:4px;"></td>
+        <td style="padding-left:10px; font-size:13px; color:#333;">Resumen del estado de las obligaciones tributarias de tu equipo para esta semana.</td>
+      </tr></table>
+      <div style="height:22px;"></div>
 
-      <table style="width:100%; border-collapse:separate; border-spacing:10px 0; margin-bottom:26px;">
+      <table width="100%" cellpadding="0" cellspacing="8" style="border-collapse:separate;">
         <tr>
           <td width="33%" bgcolor="${PALETA_REPORTE.CARD_TOTAL_BG}" style="background-color:${PALETA_REPORTE.CARD_TOTAL_BG}; border-radius:10px; padding:16px;">
             <div style="color:${PALETA_REPORTE.CARD_TOTAL_TEXTO}; font-weight:bold; font-size:13px;">Total obligaciones</div>
@@ -141,23 +142,24 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
           </td>
         </tr>
       </table>
+      <div style="height:26px;"></div>
 
-      <table style="width:100%; border-collapse:collapse; margin-bottom:22px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin-bottom:22px;">
         <tr>
-          <td style="width:55%; vertical-align:top;">
-            <img src="data:image/png;base64,${chartEntidades}" style="width:100%;">
-          </td>
-          <td style="width:45%; vertical-align:top;">
-            <img src="data:image/png;base64,${chartDona}" style="width:100%;">
-          </td>
+          <td width="55%" valign="top"><img src="data:image/png;base64,${chartEntidades}" style="width:100%;"></td>
+          <td width="45%" valign="top"><img src="data:image/png;base64,${chartDona}" style="width:100%;"></td>
         </tr>
       </table>
 
       <img src="data:image/png;base64,${chartImpuestos}" style="width:100%; margin-bottom:22px;">
 
-      <p style="border-left:4px solid #EF2C25; padding-left:10px; font-weight:bold; font-size:14px; color:#222;">Detalle de obligaciones:</p>
-      <table style="width:100%; border-collapse:collapse; font-size:11px;">
-        <tr style="background-color:#f5f5f5;" bgcolor="#f5f5f5">
+      <table cellpadding="0" cellspacing="0"><tr>
+        <td bgcolor="#EF2C25" width="4" style="background-color:#EF2C25; width:4px;"></td>
+        <td style="padding-left:10px; font-weight:bold; font-size:14px; color:#222;">Detalle de obligaciones:</td>
+      </tr></table>
+      <div style="height:8px;"></div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:11px;">
+        <tr bgcolor="#f5f5f5">
           <th style="padding:7px; border:1px solid #ddd; text-align:left;">Compañía</th>
           <th style="padding:7px; border:1px solid #ddd; text-align:left;">Obligación</th>
           <th style="padding:7px; border:1px solid #ddd; text-align:left;">Responsable</th>
@@ -244,19 +246,27 @@ function generarGraficoColumnas(etiquetas, valores, titulo, colorBarra) {
 function generarGraficoDona(vencidas, proximas, total) {
   const presentadas = Math.max(total - vencidas - proximas, 0);
 
+  const segmentos = [
+    { etiqueta: 'Próximas a vencer', valor: proximas },
+    { etiqueta: 'Vencidas a la fecha', valor: vencidas }
+  ];
+  if (presentadas > 0) segmentos.push({ etiqueta: 'Notificadas / al día', valor: presentadas });
+
+  segmentos.sort((a, b) => b.valor - a.valor);
+
+  const coloresPorTamano = ['#EF2C25', '#4A7FF7', '#F9AB00'];
+
   const dataTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Categoria')
-    .addColumn(Charts.ColumnType.NUMBER, 'Valor')
-    .addRow(['Vencidas a la fecha', vencidas])
-    .addRow(['Próximas a vencer', proximas]);
-  if (presentadas > 0) dataTable.addRow(['Notificadas / al día', presentadas]);
+    .addColumn(Charts.ColumnType.NUMBER, 'Valor');
+  segmentos.forEach(s => dataTable.addRow([s.etiqueta, s.valor]));
 
   const chart = Charts.newPieChart()
     .setDataTable(dataTable.build())
     .setTitle('Resumen de métricas')
-    .setDimensions(340, 300)
-    .setColors([PALETA_REPORTE.BARRA_ROJA, PALETA_REPORTE.DONA_DORADO, PALETA_REPORTE.BARRA_AZUL])
-    .setOption('pieHole', 0.45)
+    .setDimensions(360, 300)
+    .setColors(coloresPorTamano.slice(0, segmentos.length))
+    .setOption('pieHole', 0.5)
     .setOption('legend', { position: 'bottom', textStyle: { fontSize: 11 } })
     .setOption('pieSliceText', 'value')
     .setOption('titleTextStyle', { fontSize: 14, bold: true })

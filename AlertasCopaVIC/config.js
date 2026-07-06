@@ -152,7 +152,7 @@ function colorSemaforo(estado, diasRestantes) {
  * con Gmail, Outlook y el PDF.
  */
 function crearBolitaHtml(colorHex) {
-  return `<span style="display:inline-block; width:11px; height:11px; border-radius:50%; background-color:${colorHex}; vertical-align:middle; margin-left:5px;"></span>`;
+  return `<table style="display:inline-table; vertical-align:middle; margin-left:6px;" cellpadding="0" cellspacing="0"><tr><td bgcolor="${colorHex}" width="12" height="12" style="background-color:${colorHex}; width:12px; height:12px; border-radius:50%; font-size:0; line-height:0;">&nbsp;</td></tr></table>`;
 }
 
 
