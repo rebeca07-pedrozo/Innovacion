@@ -25,7 +25,7 @@ function enviarCorreosDiarios(nombreHoja) {
   const hoyTexto = Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const rango = obtenerRangoSemanaActual();
 
-  const grupos = {}; // email -> { nombre, filas: [{numeroFila, valores}] }
+  const grupos = {}; 
 
   datos.forEach((fila, idx) => {
     const estado = valorPorColumna(fila, mapa, 'Estado Actual');
@@ -74,10 +74,6 @@ function enviarCorreosDiarios(nombreHoja) {
   return correosEnviados;
 }
 
-/**
- * Calcula el lunes y domingo de la semana actual, y el texto
- * "5 - 11 de julio" para el header del correo.
- */
 function obtenerRangoSemanaActual() {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
@@ -99,10 +95,6 @@ function obtenerRangoSemanaActual() {
   return { inicio: lunes, fin: domingo, texto: texto };
 }
 
-/**
- * HTML completo del correo: header CON LOGO E ÍCONO DE CALENDARIO,
- * más una tarjeta por cada obligación pendiente esta semana.
- */
 function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) {
   const rango = obtenerRangoSemanaActual();
   const tarjetas = filas.map(item => construirTarjetaObligacion(item, mapa, nombreHoja)).join('<div style="height:20px;"></div>');
@@ -130,10 +122,6 @@ function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) 
   </div>`;
 }
 
-/**
- * Una tarjeta = tabla de 1 obligación + los 3 botones de color.
- * Cada botón lleva el ID de ESA obligación específica.
- */
 function construirTarjetaObligacion(item, mapa, nombreHoja) {
   const fila = item.valores;
   const id = valorPorColumna(fila, mapa, 'ID');
@@ -143,6 +131,7 @@ function construirTarjetaObligacion(item, mapa, nombreHoja) {
   const municipio = valorPorColumna(fila, mapa, 'Municipio');
   const fechaMaxima = valorPorColumna(fila, mapa, 'Fecha máxima de presentación');
   const diasRestantes = valorPorColumna(fila, mapa, 'Días Restantes');
+  const estado = valorPorColumna(fila, mapa, 'Estado Actual');
 
   const fechaTexto = fechaMaxima instanceof Date
     ? Utilities.formatDate(fechaMaxima, Session.getScriptTimeZone(), 'dd/MM/yyyy')
@@ -167,7 +156,7 @@ function construirTarjetaObligacion(item, mapa, nombreHoja) {
         <td style="padding:8px; border:1px solid #ddd;">${nit}</td>
         <td style="padding:8px; border:1px solid #ddd;">${impuestoTexto}</td>
         <td style="padding:8px; border:1px solid #ddd;">${fechaTexto}</td>
-        <td style="padding:8px; border:1px solid #ddd; text-align:center;">${diasRestantes}</td>
+        <td style="padding:8px; border:1px solid #ddd; text-align:center;">${diasRestantes} ${calcularSemaforo(estado, diasRestantes)}</td>
       </tr>
     </table>
     <table style="width:100%; border-collapse:separate; border-spacing:8px 0;">
@@ -186,15 +175,6 @@ function construirTarjetaObligacion(item, mapa, nombreHoja) {
   </div>`;
 }
 
-
-/**
- * FUNCIÓN DE DIAGNÓSTICO - NO es parte del sistema final.
- * Decodifica el base64 guardado en CONFIG.LOGO_BASE64 y lo guarda
- * como un archivo de imagen real en tu Google Drive. Si al abrirlo
- * ahí se ve roto/en blanco, el base64 está corrupto (lo más probable
- * es que se haya cortado al copiar/pegar, por ser tan largo).
- * Si se ve bien en Drive, el problema está en otra parte del envío.
- */
 function diagnosticarLogoBase64() {
   const blob = Utilities.newBlob(
     Utilities.base64Decode(CONFIG.LOGO_BASE64),
@@ -207,18 +187,6 @@ function diagnosticarLogoBase64() {
   return archivo.getUrl();
 }
 
-/**
- * Genera el base64 de una imagen guardada en Drive, dado su ID de
- * archivo, y lo escribe en un GOOGLE DOC (no en una celda de Sheets,
- * que tiene límite de 50,000 caracteres por celda y el base64 de una
- * imagen fácilmente lo supera).
- *
- * CÓMO USAR:
- * 1. Reemplaza el ID de abajo por el ID real de tu archivo en Drive.
- * 2. Ejecuta esta función.
- * 3. Se crea un Google Doc llamado "Base64 Logo Davivienda" en tu Drive.
- * 4. Ábrelo, Ctrl+A (seleccionar todo), Ctrl+C (copiar), y listo.
- */
 function generarBase64DesdeDrive() {
   const idArchivo = 'PEGA_AQUI_EL_ID_DE_TU_ARCHIVO_EN_DRIVE';
 
@@ -228,7 +196,6 @@ function generarBase64DesdeDrive() {
   const base64 = Utilities.base64Encode(bytes);
 
   const nombreDoc = 'Base64 Logo Davivienda';
-  // Si ya existe un doc con ese nombre de una corrida anterior, lo borra primero
   const docsExistentes = DriveApp.getFilesByName(nombreDoc);
   while (docsExistentes.hasNext()) {
     docsExistentes.next().setTrashed(true);
