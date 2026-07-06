@@ -156,7 +156,7 @@ function construirTarjetaObligacion(item, mapa, nombreHoja) {
         <td style="padding:8px; border:1px solid #ddd;">${nit}</td>
         <td style="padding:8px; border:1px solid #ddd;">${impuestoTexto}</td>
         <td style="padding:8px; border:1px solid #ddd;">${fechaTexto}</td>
-        <td style="padding:8px; border:1px solid #ddd; text-align:center;">${diasRestantes} ${calcularSemaforo(estado, diasRestantes)}</td>
+        <td style="padding:8px; border:1px solid #ddd; text-align:center;">${textoDiasRestantes(diasRestantes)} ${crearBolitaHtml(colorSemaforo(estado, diasRestantes))}</td>
       </tr>
     </table>
     <table style="width:100%; border-collapse:separate; border-spacing:8px 0;">

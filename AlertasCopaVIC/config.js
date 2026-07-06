@@ -141,3 +141,27 @@ function calcularSemaforo(estado, diasRestantes) {
   if (typeof diasRestantes === 'number' && diasRestantes <= CONFIG.DIAS_UMBRAL_URGENTE) return '🔴';
   return '🟡';
 }
+function colorSemaforo(estado, diasRestantes) {
+  if (estado === CONFIG.ESTADOS.PRESENTADO) return '#2E8B4F';
+  if (typeof diasRestantes === 'number' && diasRestantes <= CONFIG.DIAS_UMBRAL_URGENTE) return '#EF2C25';
+  return '#F4B400';
+}
+
+/**
+ * Genera un círculo de color con HTML/CSS puro (no emoji), compatible
+ * con Gmail, Outlook y el PDF.
+ */
+function crearBolitaHtml(colorHex) {
+  return `<span style="display:inline-block; width:11px; height:11px; border-radius:50%; background-color:${colorHex}; vertical-align:middle; margin-left:5px;"></span>`;
+}
+
+
+function textoDiasRestantes(diasRestantes) {
+  if (typeof diasRestantes !== 'number') return '(sin fecha)';
+  if (diasRestantes < 0) {
+    const dias = Math.abs(diasRestantes);
+    return 'Vencido hace ' + dias + ' día' + (dias === 1 ? '' : 's');
+  }
+  if (diasRestantes === 0) return 'Vence hoy';
+  return diasRestantes + ' día' + (diasRestantes === 1 ? '' : 's');
+}

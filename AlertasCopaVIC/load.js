@@ -1,8 +1,3 @@
-/**
- * MOTOR DE CARGA (ETL - Paso 2: TRANSFORM -> LOAD)
- * -------------------------------------------------------------
- * FUNCIÓN A EJECUTAR: cargarDatosLoad (o ejecutarProcesoCompletoETL)
- */
 
 function cargarDatosLoad() {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
@@ -91,11 +86,6 @@ function ejecutarProcesoCompletoETL() {
   SpreadsheetApp.getActiveSpreadsheet().toast('Proceso ETL completo (Extract → Transform → Load) terminado', 'Listo', 6);
 }
 
-/**
- * Colorea de fondo la columna 'Estado Actual' (paleta suave) — la
- * columna 'Semáforo' ya se ve a color por el emoji en sí, no necesita
- * fondo adicional.
- */
 function aplicarSemaforoHoja(hoja) {
   const mapa = obtenerMapaColumnas(hoja);
   const idxEstado = mapa['Estado Actual'];

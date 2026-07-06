@@ -1,8 +1,10 @@
 const PALETA_REPORTE = {
+  HEADER_BG: '#FDE1E0',
   CARD_TOTAL_BG: '#DFEAF0', CARD_TOTAL_TEXTO: '#27729D',
   CARD_PROXIMAS_BG: '#FDF0DF', CARD_PROXIMAS_TEXTO: '#F4971D',
   CARD_VENCIDAS_BG: '#FDE1E0', CARD_VENCIDAS_TEXTO: '#F0342D',
-  BARRA_ROJA: '#EF2C25', BARRA_AZUL: '#4A7FF7', BARRA_NARANJA: '#F3B86B', BARRA_AMARILLA: '#FFDE59'
+  BARRA_ROJA: '#EF2C25', BARRA_AZUL: '#4A7FF7', BARRA_NARANJA: '#F3B86B', BARRA_AMARILLA: '#FFDE59',
+  DONA_DORADO: '#F9AB00' // más contraste que el amarillo pastel de las barras
 };
 
 function enviarReportePruebaJefes() {
@@ -92,7 +94,6 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
   });
   const topImpuestos = Object.entries(conteoImpuestos).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
-  // Paleta de colores vivos, uno distinto por barra, igual que la imagen de referencia
   const paletaBarras = [PALETA_REPORTE.BARRA_ROJA, PALETA_REPORTE.BARRA_AZUL, PALETA_REPORTE.BARRA_NARANJA, PALETA_REPORTE.BARRA_AMARILLA, PALETA_REPORTE.BARRA_AZUL];
 
   const chartEntidades = generarGraficoBarrasHorizontal(
@@ -106,11 +107,13 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
   const filasTablaHtml = filas.map(item => construirFilaDetalleHtml(item, mapa)).join('');
 
   const html = `
-  <html><body style="font-family:Arial, sans-serif; margin:0; padding:0; background:#ffffff;">
-    <table style="width:100%; background:linear-gradient(90deg, #FDF3EE, #FDE1E0); border-collapse:collapse;">
+  <html><body style="font-family:Arial, sans-serif; margin:0; padding:0; background-color:#ffffff;">
+    <table width="100%" bgcolor="${PALETA_REPORTE.HEADER_BG}" style="width:100%; background-color:${PALETA_REPORTE.HEADER_BG}; border-collapse:collapse;">
       <tr>
-        <td style="padding:14px 24px;"><img src="data:image/png;base64,${CONFIG.LOGO_BASE64}" style="height:26px;"></td>
-        <td style="padding:14px 24px; text-align:right;">
+        <td bgcolor="${PALETA_REPORTE.HEADER_BG}" style="padding:14px 24px; background-color:${PALETA_REPORTE.HEADER_BG};">
+          <img src="data:image/png;base64,${CONFIG.LOGO_BASE64}" style="height:26px;">
+        </td>
+        <td bgcolor="${PALETA_REPORTE.HEADER_BG}" style="padding:14px 24px; text-align:right; background-color:${PALETA_REPORTE.HEADER_BG};">
           <img src="${CONFIG.URL_ICONO_CALENDARIO}" style="height:14px; vertical-align:middle; margin-right:5px;">
           <span style="color:#555; font-size:12px;">Semana del ${rango.texto}</span>
         </td>
@@ -124,15 +127,15 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
 
       <table style="width:100%; border-collapse:separate; border-spacing:10px 0; margin-bottom:26px;">
         <tr>
-          <td style="width:33%; background:${PALETA_REPORTE.CARD_TOTAL_BG}; border-radius:10px; padding:16px;">
+          <td width="33%" bgcolor="${PALETA_REPORTE.CARD_TOTAL_BG}" style="background-color:${PALETA_REPORTE.CARD_TOTAL_BG}; border-radius:10px; padding:16px;">
             <div style="color:${PALETA_REPORTE.CARD_TOTAL_TEXTO}; font-weight:bold; font-size:13px;">Total obligaciones</div>
             <div style="color:#222; font-size:26px; font-weight:bold;">${total}</div>
           </td>
-          <td style="width:33%; background:${PALETA_REPORTE.CARD_PROXIMAS_BG}; border-radius:10px; padding:16px;">
+          <td width="33%" bgcolor="${PALETA_REPORTE.CARD_PROXIMAS_BG}" style="background-color:${PALETA_REPORTE.CARD_PROXIMAS_BG}; border-radius:10px; padding:16px;">
             <div style="color:${PALETA_REPORTE.CARD_PROXIMAS_TEXTO}; font-weight:bold; font-size:13px;">Próximas a vencer</div>
             <div style="color:#222; font-size:26px; font-weight:bold;">${proximas}</div>
           </td>
-          <td style="width:33%; background:${PALETA_REPORTE.CARD_VENCIDAS_BG}; border-radius:10px; padding:16px;">
+          <td width="33%" bgcolor="${PALETA_REPORTE.CARD_VENCIDAS_BG}" style="background-color:${PALETA_REPORTE.CARD_VENCIDAS_BG}; border-radius:10px; padding:16px;">
             <div style="color:${PALETA_REPORTE.CARD_VENCIDAS_TEXTO}; font-weight:bold; font-size:13px;">Vencidas a la fecha</div>
             <div style="color:#222; font-size:26px; font-weight:bold;">${vencidas}</div>
           </td>
@@ -141,10 +144,10 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
 
       <table style="width:100%; border-collapse:collapse; margin-bottom:22px;">
         <tr>
-          <td style="width:58%; vertical-align:top;">
+          <td style="width:55%; vertical-align:top;">
             <img src="data:image/png;base64,${chartEntidades}" style="width:100%;">
           </td>
-          <td style="width:42%; vertical-align:top;">
+          <td style="width:45%; vertical-align:top;">
             <img src="data:image/png;base64,${chartDona}" style="width:100%;">
           </td>
         </tr>
@@ -154,7 +157,7 @@ function construirPdfReporteJefe(nombreJefe, filas, mapa, rango) {
 
       <p style="border-left:4px solid #EF2C25; padding-left:10px; font-weight:bold; font-size:14px; color:#222;">Detalle de obligaciones:</p>
       <table style="width:100%; border-collapse:collapse; font-size:11px;">
-        <tr style="background:#f5f5f5;">
+        <tr style="background-color:#f5f5f5;" bgcolor="#f5f5f5">
           <th style="padding:7px; border:1px solid #ddd; text-align:left;">Compañía</th>
           <th style="padding:7px; border:1px solid #ddd; text-align:left;">Obligación</th>
           <th style="padding:7px; border:1px solid #ddd; text-align:left;">Responsable</th>
@@ -182,12 +185,13 @@ function construirFilaDetalleHtml(item, mapa) {
   const diasRestantes = valorPorColumna(fila, mapa, 'Días Restantes');
   const estadoReal = valorPorColumna(fila, mapa, 'Estado Actual');
   const estadoMostrado = etiquetaEstadoParaJefe(estadoReal);
-  const semaforo = calcularSemaforo(estadoReal, diasRestantes);
 
   const fechaTexto = fechaMaxima instanceof Date
     ? Utilities.formatDate(fechaMaxima, Session.getScriptTimeZone(), 'dd/MM/yyyy')
     : '(por confirmar)';
   const impuestoTexto = municipio ? impuesto + ' - ' + municipio : impuesto;
+  const diasTexto = textoDiasRestantes(diasRestantes);
+  const bolita = crearBolitaHtml(colorSemaforo(estadoReal, diasRestantes));
 
   return `
   <tr>
@@ -195,25 +199,26 @@ function construirFilaDetalleHtml(item, mapa) {
     <td style="padding:7px; border:1px solid #ddd;">${impuestoTexto}</td>
     <td style="padding:7px; border:1px solid #ddd;">${responsable || '(sin asignar)'}</td>
     <td style="padding:7px; border:1px solid #ddd;">${fechaTexto}</td>
-    <td style="padding:7px; border:1px solid #ddd; text-align:center;">${diasRestantes} ${semaforo}</td>
+    <td style="padding:7px; border:1px solid #ddd; text-align:center; white-space:nowrap;">${diasTexto} ${bolita}</td>
     <td style="padding:7px; border:1px solid #ddd; text-align:center;">${estadoMostrado}</td>
   </tr>`;
 }
+
 function generarGraficoBarrasHorizontal(etiquetas, valores, titulo, paletaColores) {
   const dataTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Categoria')
     .addColumn(Charts.ColumnType.NUMBER, 'Valor');
   etiquetas.forEach((et, i) => dataTable.addRow([et, valores[i]]));
 
-  const builder = Charts.newBarChart()
+  const chart = Charts.newBarChart()
     .setDataTable(dataTable.build())
     .setTitle(titulo)
     .setDimensions(430, 260)
     .setOption('legend', { position: 'none' })
     .setOption('colors', paletaColores.slice(0, etiquetas.length))
-    .setOption('titleTextStyle', { fontSize: 14, bold: true });
+    .setOption('titleTextStyle', { fontSize: 14, bold: true })
+    .build();
 
-  const chart = builder.build();
   return Utilities.base64Encode(chart.getAs('image/png').getBytes());
 }
 
@@ -235,6 +240,7 @@ function generarGraficoColumnas(etiquetas, valores, titulo, colorBarra) {
   return Utilities.base64Encode(chart.getAs('image/png').getBytes());
 }
 
+
 function generarGraficoDona(vencidas, proximas, total) {
   const presentadas = Math.max(total - vencidas - proximas, 0);
 
@@ -243,14 +249,16 @@ function generarGraficoDona(vencidas, proximas, total) {
     .addColumn(Charts.ColumnType.NUMBER, 'Valor')
     .addRow(['Vencidas a la fecha', vencidas])
     .addRow(['Próximas a vencer', proximas]);
-  if (presentadas > 0) dataTable.addRow(['Total de Obligaciones', presentadas]);
+  if (presentadas > 0) dataTable.addRow(['Notificadas / al día', presentadas]);
 
   const chart = Charts.newPieChart()
     .setDataTable(dataTable.build())
     .setTitle('Resumen de métricas')
-    .setDimensions(300, 260)
-    .setColors([PALETA_REPORTE.BARRA_ROJA, PALETA_REPORTE.BARRA_AMARILLA, PALETA_REPORTE.BARRA_AZUL])
-    .setOption('pieHole', 0.5)
+    .setDimensions(340, 300)
+    .setColors([PALETA_REPORTE.BARRA_ROJA, PALETA_REPORTE.DONA_DORADO, PALETA_REPORTE.BARRA_AZUL])
+    .setOption('pieHole', 0.45)
+    .setOption('legend', { position: 'bottom', textStyle: { fontSize: 11 } })
+    .setOption('pieSliceText', 'value')
     .setOption('titleTextStyle', { fontSize: 14, bold: true })
     .build();
 
