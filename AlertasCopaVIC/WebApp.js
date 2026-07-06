@@ -126,7 +126,7 @@ function paginaFormularioPresentado(nombreHoja, id) {
     <div style="max-width:480px; margin:40px auto; text-align:center; background:${CONFIG.COLORES_ESTADO['Presentado']}; padding:36px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08);">
       <h2 style="margin-top:0; color:#222;">Registrar presentación</h2>
       <p style="color:#444;">Inserte la fecha en la que se presentó esta obligación:</p>
-      <form action="${CONFIG.URL_WEBAPP}" method="get">
+      <form action="${CONFIG.URL_WEBAPP}" method="get" target="_top">
         <input type="hidden" name="hoja" value="${nombreHoja}">
         <input type="hidden" name="id" value="${id}">
         <input type="hidden" name="accion" value="guardarPresentado">

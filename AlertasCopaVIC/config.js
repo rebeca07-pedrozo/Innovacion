@@ -147,10 +147,6 @@ function colorSemaforo(estado, diasRestantes) {
   return '#F4B400';
 }
 
-/**
- * Genera un círculo de color con HTML/CSS puro (no emoji), compatible
- * con Gmail, Outlook y el PDF.
- */
 function crearBolitaHtml(colorHex) {
   return `<table style="display:inline-table; vertical-align:middle; margin-left:6px;" cellpadding="0" cellspacing="0"><tr><td bgcolor="${colorHex}" width="12" height="12" style="background-color:${colorHex}; width:12px; height:12px; border-radius:50%; font-size:0; line-height:0;">&nbsp;</td></tr></table>`;
 }
