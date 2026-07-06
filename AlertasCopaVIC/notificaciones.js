@@ -185,3 +185,24 @@ function construirTarjetaObligacion(item, mapa, nombreHoja) {
     </table>
   </div>`;
 }
+
+
+/**
+ * FUNCIÓN DE DIAGNÓSTICO - NO es parte del sistema final.
+ * Decodifica el base64 guardado en CONFIG.LOGO_BASE64 y lo guarda
+ * como un archivo de imagen real en tu Google Drive. Si al abrirlo
+ * ahí se ve roto/en blanco, el base64 está corrupto (lo más probable
+ * es que se haya cortado al copiar/pegar, por ser tan largo).
+ * Si se ve bien en Drive, el problema está en otra parte del envío.
+ */
+function diagnosticarLogoBase64() {
+  const blob = Utilities.newBlob(
+    Utilities.base64Decode(CONFIG.LOGO_BASE64),
+    'image/png',
+    'diagnostico_logo.png'
+  );
+  const archivo = DriveApp.createFile(blob);
+  Logger.log('Archivo creado. Ábrelo aquí: ' + archivo.getUrl());
+  Logger.log('Tamaño en bytes: ' + blob.getBytes().length);
+  return archivo.getUrl();
+}
