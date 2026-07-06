@@ -206,3 +206,37 @@ function diagnosticarLogoBase64() {
   Logger.log('Tamaño en bytes: ' + blob.getBytes().length);
   return archivo.getUrl();
 }
+
+
+/**
+ * Genera el base64 de una imagen guardada en Drive, dado su ID de
+ * archivo. Lo escribe en una hoja (no en el Logger) para que puedas
+ * copiarlo completo sin que se corte por ser un string largo.
+ *
+ * CÓMO USAR:
+ * 1. Reemplaza el ID de abajo por el ID real de tu archivo en Drive.
+ * 2. Ejecuta esta función.
+ * 3. Ve a la hoja "LOGO_BASE64_TEMP", celda A3 -> ahí está el string
+ *    completo listo para copiar y pegar en CONFIG.LOGO_BASE64.
+ */
+function generarBase64DesdeDrive() {
+  const idArchivo = 'PEGA_AQUI_EL_ID_DE_TU_ARCHIVO_EN_DRIVE';
+
+  const archivo = DriveApp.getFileById(idArchivo);
+  const blob = archivo.getBlob();
+  const bytes = blob.getBytes();
+  const base64 = Utilities.base64Encode(bytes);
+
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  let hoja = libro.getSheetByName('LOGO_BASE64_TEMP') || libro.insertSheet('LOGO_BASE64_TEMP');
+  hoja.clear();
+  hoja.getRange('A1').setValue('Nombre archivo: ' + archivo.getName());
+  hoja.getRange('A2').setValue('Tipo MIME: ' + blob.getContentType());
+  hoja.getRange('A3').setValue('Tamaño en bytes: ' + bytes.length);
+  hoja.getRange('A4').setValue(base64);
+
+  Logger.log('Listo. Revisa la hoja LOGO_BASE64_TEMP, celda A4. Bytes: ' + bytes.length);
+  SpreadsheetApp.getActiveSpreadsheet().toast('Base64 generado en hoja LOGO_BASE64_TEMP, celda A4 (' + bytes.length + ' bytes)', 'Listo', 8);
+
+  return base64;
+}
