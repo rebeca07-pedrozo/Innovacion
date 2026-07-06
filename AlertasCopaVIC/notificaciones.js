@@ -1,15 +1,11 @@
-/**
- * BLOQUE 3: CORREOS DIARIOS A ENCARGADOS
- * -------------------------------------------------------------
- * Agrupa las obligaciones de la SEMANA ACTUAL (o ya vencidas y no
- * presentadas) de cada encargado en UN solo correo diario, con una
- * tarjeta (tabla + 3 botones) por cada obligación.
- *
- * FUNCIONES A EJECUTAR:
- *  - enviarCorreosDiariosPrueba()      -> usa la hoja TRANSFORM2
- *  - enviarCorreosDiariosProduccion()  -> usa la hoja LOAD
- */
 
+function obtenerBlobLogo() {
+  return Utilities.newBlob(
+    Utilities.base64Decode(CONFIG.LOGO_BASE64),
+    'image/png',
+    'logo_davivienda.png'
+  );
+}
 function enviarCorreosDiariosPrueba() {
   return enviarCorreosDiarios('TRANSFORM2');
 }
@@ -60,7 +56,10 @@ function enviarCorreosDiarios(nombreHoja) {
     MailApp.sendEmail({
       to: correo,
       subject: 'Vencimientos DIAN esta semana - ' + grupo.filas.length + ' obligación(es)',
-      htmlBody: htmlCorreo
+      htmlBody: htmlCorreo,
+      inlineImages: {
+        logoDavivienda: obtenerBlobLogo()
+      }
     });
 
     grupo.filas.forEach(item => {
@@ -113,7 +112,7 @@ function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) 
     <table style="width:100%; background:linear-gradient(90deg, #FCEFEA, #FBD9CE); border-collapse:collapse;">
       <tr>
         <td style="padding:16px 24px; text-align:left; vertical-align:middle;">
-          <img src="${CONFIG.URL_LOGO_DAVIVIENDA}" style="height:26px; vertical-align:middle;" alt="Davivienda">
+          <img src="cid:logoDavivienda" style="height:26px; vertical-align:middle;" alt="Davivienda">
         </td>
         <td style="padding:16px 24px; text-align:right; vertical-align:middle; white-space:nowrap;">
           <img src="${CONFIG.URL_ICONO_CALENDARIO}" style="height:16px; vertical-align:middle; margin-right:6px;" alt="Calendario">
