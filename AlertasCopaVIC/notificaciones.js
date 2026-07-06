@@ -1,9 +1,9 @@
 /**
  * BLOQUE 3: CORREOS DIARIOS A ENCARGADOS
  * -------------------------------------------------------------
- * Agrupa TODAS las obligaciones pendientes (Estado != Presentado)
- * de cada encargado en UN solo correo diario, con botones de acción
- * por cada obligación (porque un encargado puede tener varias).
+ * Agrupa las obligaciones de la SEMANA ACTUAL (o ya vencidas y no
+ * presentadas) de cada encargado en UN solo correo diario, con una
+ * tarjeta (tabla + 3 botones) por cada obligación.
  *
  * FUNCIONES A EJECUTAR:
  *  - enviarCorreosDiariosPrueba()      -> usa la hoja TRANSFORM2
@@ -27,14 +27,19 @@ function enviarCorreosDiarios(nombreHoja) {
   const datos = hoja.getRange(2, 1, Math.max(hoja.getLastRow() - 1, 0), hoja.getLastColumn()).getValues();
   const hoy = new Date();
   const hoyTexto = Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const rango = obtenerRangoSemanaActual();
 
-  // Agrupar filas pendientes por email de encargado
+  // Agrupar filas pendientes (de esta semana o vencidas) por email de encargado
   const grupos = {}; // email -> { nombre, filas: [{numeroFila, valores}] }
 
   datos.forEach((fila, idx) => {
     const estado = valorPorColumna(fila, mapa, 'Estado Actual');
     const email = valorPorColumna(fila, mapa, 'Encargado Email');
-    if (!email || estado === CONFIG.ESTADOS.PRESENTADO) return; // se envía TODOS los días mientras no esté Presentado
+    const fechaMaxima = valorPorColumna(fila, mapa, 'Fecha máxima de presentación');
+
+    const dentroDeSemana = fechaMaxima instanceof Date && fechaMaxima >= rango.inicio && fechaMaxima <= rango.fin;
+    const yaVencida = fechaMaxima instanceof Date && fechaMaxima < rango.inicio;
+    if (!email || estado === CONFIG.ESTADOS.PRESENTADO || (!dentroDeSemana && !yaVencida)) return;
 
     // Puede haber varios encargados en un mismo campo (separados por "; ")
     const emails = String(email).split(';').map(e => e.trim()).filter(Boolean);
@@ -56,11 +61,11 @@ function enviarCorreosDiarios(nombreHoja) {
 
     MailApp.sendEmail({
       to: correo,
-      subject: 'Vencimientos DIAN pendientes - ' + grupo.filas.length + ' obligación(es)',
+      subject: 'Vencimientos DIAN esta semana - ' + grupo.filas.length + ' obligación(es)',
       htmlBody: htmlCorreo
     });
 
-    // Marca la fecha de último envío (solo para auditoría, no bloquea el envío del día siguiente)
+    // Marca la fecha de último envío (solo para auditoría)
     grupo.filas.forEach(item => {
       hoja.getRange(item.numeroFila, mapa['Última Fecha Envío Recordatorio'] + 1).setValue(hoyTexto);
     });
@@ -74,76 +79,107 @@ function enviarCorreosDiarios(nombreHoja) {
 }
 
 /**
- * Construye el HTML del correo para un encargado, con una fila de
- * tabla por cada obligación pendiente y sus 3 botones de acción.
+ * Calcula el lunes y domingo de la semana actual, y el texto
+ * "5 - 11 de julio" para mostrar en el header del correo.
+ */
+function obtenerRangoSemanaActual() {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const diaSemana = hoy.getDay(); // 0=domingo, 1=lunes...
+  const offsetLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
+
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() + offsetLunes);
+
+  const domingo = new Date(lunes);
+  domingo.setDate(lunes.getDate() + 6);
+  domingo.setHours(23, 59, 59, 999);
+
+  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const texto = lunes.getMonth() === domingo.getMonth()
+    ? `${lunes.getDate()} - ${domingo.getDate()} de ${meses[lunes.getMonth()]}`
+    : `${lunes.getDate()} de ${meses[lunes.getMonth()]} - ${domingo.getDate()} de ${meses[domingo.getMonth()]}`;
+
+  return { inicio: lunes, fin: domingo, texto: texto };
+}
+
+/**
+ * HTML del correo completo para un encargado: header + una tarjeta
+ * por cada obligación pendiente esta semana (tabla + 3 botones).
  */
 function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) {
-  const filasHtml = filas.map(item => construirFilaHtmlObligacion(item, mapa, nombreHoja)).join('');
+  const rango = obtenerRangoSemanaActual();
+  const tarjetas = filas.map(item => construirTarjetaObligacion(item, mapa, nombreHoja)).join('<div style="height:20px;"></div>');
 
   return `
-  <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto;">
-    <div style="background:#EC6E1F; padding:14px 20px; display:flex; justify-content:space-between; align-items:center;">
-      <span style="color:#fff; font-weight:bold; font-size:18px;">DAVIVIENDA</span>
-      <span style="color:#fff; font-size:13px;">Semana del ${obtenerRangoSemanaTexto()}</span>
+  <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; border:1px solid #eee; border-radius:10px; overflow:hidden;">
+    <div style="background:linear-gradient(90deg, #FCEFEA, #FBD9CE); padding:16px 24px; display:flex; justify-content:space-between; align-items:center;">
+      <span style="color:#EC6E1F; font-weight:bold; font-size:18px;">🏠 DAVIVIENDA</span>
+      <span style="color:#555; font-size:13px;">📅 Semana del ${rango.texto}</span>
     </div>
-    <div style="padding:20px; border:1px solid #eee; border-top:none;">
-      <h2 style="margin-top:0;">Informe de vencimientos pendientes</h2>
-      <p>Hola ${nombreEncargado || ''},</p>
-      <p style="border-left:4px solid #D0021B; padding-left:10px;">
-        Tienes <b>${filas.length}</b> obligación(es) ante la DIAN pendiente(s) de presentar.
-        Gestiona esto antes de la fecha límite para evitar sanciones.
+    <div style="padding:24px;">
+      <h1 style="font-size:22px; margin:0 0 16px 0;">Informe de resumen vencimientos semanales</h1>
+      <p style="border-left:4px solid #D0021B; padding-left:10px; margin-bottom:20px;">
+        Vencimiento próximo ante la DIAN. Gestiona esta obligación antes de la fecha límite para evitar sanciones.
       </p>
-      <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:15px;">
-        <tr style="background:#f5f5f5; text-align:left;">
-          <th style="padding:8px; border:1px solid #ddd;">Compañía</th>
-          <th style="padding:8px; border:1px solid #ddd;">Obligación</th>
-          <th style="padding:8px; border:1px solid #ddd;">Fecha límite</th>
-          <th style="padding:8px; border:1px solid #ddd;">Días restantes</th>
-          <th style="padding:8px; border:1px solid #ddd;">Estado</th>
-          <th style="padding:8px; border:1px solid #ddd;">Acción</th>
-        </tr>
-        ${filasHtml}
-      </table>
+      ${tarjetas}
     </div>
   </div>`;
 }
 
-function construirFilaHtmlObligacion(item, mapa, nombreHoja) {
+/**
+ * Una "tarjeta" = tabla de 1 obligación + los 3 botones de color,
+ * igual al diseño de tu imagen. Cada botón lleva el ID de ESA
+ * obligación específica.
+ */
+function construirTarjetaObligacion(item, mapa, nombreHoja) {
   const fila = item.valores;
   const id = valorPorColumna(fila, mapa, 'ID');
   const compania = valorPorColumna(fila, mapa, 'Compañía (Normalizada)');
+  const nit = valorPorColumna(fila, mapa, 'NIT');
   const impuesto = valorPorColumna(fila, mapa, 'Impuesto');
   const municipio = valorPorColumna(fila, mapa, 'Municipio');
   const fechaMaxima = valorPorColumna(fila, mapa, 'Fecha máxima de presentación');
   const diasRestantes = valorPorColumna(fila, mapa, 'Días Restantes');
-  const estado = valorPorColumna(fila, mapa, 'Estado Actual');
-  const colorFondo = CONFIG.COLORES_ESTADO[estado] || '#fff';
 
   const fechaTexto = fechaMaxima instanceof Date
     ? Utilities.formatDate(fechaMaxima, Session.getScriptTimeZone(), 'dd/MM/yyyy')
     : '(fecha por confirmar)';
-
   const impuestoTexto = municipio ? impuesto + ' - ' + municipio : impuesto;
-
   const base = CONFIG.URL_WEBAPP + '?hoja=' + encodeURIComponent(nombreHoja) + '&id=' + encodeURIComponent(id);
 
   return `
-  <tr style="background:${colorFondo};">
-    <td style="padding:8px; border:1px solid #ddd;">${compania}</td>
-    <td style="padding:8px; border:1px solid #ddd;">${impuestoTexto}</td>
-    <td style="padding:8px; border:1px solid #ddd;">${fechaTexto}</td>
-    <td style="padding:8px; border:1px solid #ddd; text-align:center;">${diasRestantes}</td>
-    <td style="padding:8px; border:1px solid #ddd; text-align:center;">${estado}</td>
-    <td style="padding:8px; border:1px solid #ddd; white-space:nowrap;">
-      <a href="${base}&accion=notificado" style="color:#2C5F8A; text-decoration:none; margin-right:6px;">Notificado</a> |
-      <a href="${base}&accion=enproceso" style="color:#C97A1F; text-decoration:none; margin:0 6px;">En proceso</a> |
-      <a href="${base}&accion=formPresentado" style="color:#2E8B4F; text-decoration:none; margin-left:6px;">Presentado</a>
-    </td>
-  </tr>`;
-}
-
-function obtenerRangoSemanaTexto() {
-  const hoy = new Date();
-  const formato = 'd \'de\' MMMM';
-  return Utilities.formatDate(hoy, Session.getScriptTimeZone(), formato);
+  <div style="border:1px solid #e0e0e0; border-radius:8px; padding:16px;">
+    <p style="font-weight:bold; margin:0 0 10px 0;">OBLIGATORIO:</p>
+    <p style="margin:0 0 12px 0; color:#555;">Indícanos en qué estado se encuentra:</p>
+    <table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:16px;">
+      <tr style="background:#f7f7f7;">
+        <th style="padding:8px; border:1px solid #ddd; text-align:left;">Compañía</th>
+        <th style="padding:8px; border:1px solid #ddd; text-align:left;">NIT</th>
+        <th style="padding:8px; border:1px solid #ddd; text-align:left;">Obligación</th>
+        <th style="padding:8px; border:1px solid #ddd; text-align:left;">Fecha límite</th>
+        <th style="padding:8px; border:1px solid #ddd; text-align:center;">Días restantes</th>
+      </tr>
+      <tr>
+        <td style="padding:8px; border:1px solid #ddd;">${compania}</td>
+        <td style="padding:8px; border:1px solid #ddd;">${nit}</td>
+        <td style="padding:8px; border:1px solid #ddd;">${impuestoTexto}</td>
+        <td style="padding:8px; border:1px solid #ddd;">${fechaTexto}</td>
+        <td style="padding:8px; border:1px solid #ddd; text-align:center;">${diasRestantes}</td>
+      </tr>
+    </table>
+    <table style="width:100%; border-collapse:separate; border-spacing:8px 0;">
+      <tr>
+        <td style="width:33%; background:#D9E8F5; border-radius:6px; text-align:center; padding:12px 0;">
+          <a href="${base}&accion=notificado" style="color:#2C5F8A; font-weight:bold; text-decoration:none;">Notificado</a>
+        </td>
+        <td style="width:33%; background:#FCE8D5; border-radius:6px; text-align:center; padding:12px 0;">
+          <a href="${base}&accion=enproceso" style="color:#C97A1F; font-weight:bold; text-decoration:none;">En proceso</a>
+        </td>
+        <td style="width:33%; background:#DCF0E1; border-radius:6px; text-align:center; padding:12px 0;">
+          <a href="${base}&accion=formPresentado" style="color:#2E8B4F; font-weight:bold; text-decoration:none;">Presentado</a>
+        </td>
+      </tr>
+    </table>
+  </div>`;
 }
