@@ -1,12 +1,13 @@
-
-
 const CONFIG = {
   HOJA_EXTRACT: 'EXTRACT',
   HOJA_TRANSFORM: 'TRANSFORM',
+  HOJA_LOAD: 'LOAD',
   HOJA_PARAMETROS: 'PARAMETROS_ALERTA',
   HOJA_ANOMALIAS: 'LOG_ANOMALIAS',
 
   ANIO_REFERENCIA: null,
+
+  URL_WEBAPP: 'PEGAR_AQUI_LA_URL_DESPUES_DE_DESPLEGAR',
 
   COL_EXTRACT: {
     COMPANIA: 'Compañía',
@@ -21,6 +22,16 @@ const CONFIG = {
   },
 
   COL_TRANSFORM: [
+    'ID',
+    'Compañía (Normalizada)', 'Compañía (Original)', 'NIT', 'Impuesto',
+    'Fecha máxima de presentación', 'Fecha Válida',
+    'Encargado Nombre', 'Encargado Email',
+    'Jefe1 Nombre', 'Jefe1 Email',
+    'Jefe2 Nombre', 'Jefe2 Email',
+    'Cifras', 'Municipio'
+  ],
+
+  COL_LOAD: [
     'ID',
     'Compañía (Normalizada)', 'Compañía (Original)', 'NIT', 'Impuesto',
     'Fecha máxima de presentación', 'Fecha Válida',
@@ -42,6 +53,13 @@ const CONFIG = {
     NOTIFICADO: 'Notificado',
     EN_PROCESO: 'En proceso',
     PRESENTADO: 'Presentado'
+  },
+
+  COLORES_ESTADO: {
+    'Pendiente': '#F2F2F2',
+    'Notificado': '#D9E8F5',
+    'En proceso': '#FCE8D5',
+    'Presentado': '#DCF0E1'
   }
 };
 
@@ -77,9 +95,7 @@ function asegurarHojaParametros() {
 function asegurarHojaAnomalias() {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
   let hoja = libro.getSheetByName(CONFIG.HOJA_ANOMALIAS);
-  if (!hoja) {
-    hoja = libro.insertSheet(CONFIG.HOJA_ANOMALIAS);
-  }
+  if (!hoja) hoja = libro.insertSheet(CONFIG.HOJA_ANOMALIAS);
   hoja.clearContents();
   hoja.getRange(1, 1, 1, CONFIG.COL_ANOMALIAS.length).setValues([CONFIG.COL_ANOMALIAS]);
   hoja.getRange(1, 1, 1, CONFIG.COL_ANOMALIAS.length).setFontWeight('bold');
@@ -94,6 +110,7 @@ function escribirAnomalias(listaAnomalias) {
   hoja.autoResizeColumns(1, CONFIG.COL_ANOMALIAS.length);
 }
 
+
 function generarIdObligacion(compania, nit, impuesto, fechaMaximaTexto, municipio) {
   const partes = [compania, nit, impuesto, fechaMaximaTexto];
   if (municipio) partes.push(municipio);
@@ -101,4 +118,17 @@ function generarIdObligacion(compania, nit, impuesto, fechaMaximaTexto, municipi
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, textoClave);
   const hash = bytes.map(b => (b < 0 ? b + 256 : b).toString(16).padStart(2, '0')).join('');
   return 'OBL-' + hash.substring(0, 10).toUpperCase();
+}
+
+function buscarFilaPorId(hoja, id) {
+  const mapa = obtenerMapaColumnas(hoja);
+  const idxId = mapa['ID'];
+  if (idxId === undefined) return null;
+  const datos = hoja.getRange(2, 1, Math.max(hoja.getLastRow() - 1, 0), hoja.getLastColumn()).getValues();
+  for (let i = 0; i < datos.length; i++) {
+    if (datos[i][idxId] === id) {
+      return { numeroFila: i + 2, valores: datos[i], mapa: mapa };
+    }
+  }
+  return null;
 }

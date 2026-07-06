@@ -24,40 +24,17 @@ function transformarDatosETL() {
   const datosExtract = hojaExtract.getRange(2, 1, Math.max(hojaExtract.getLastRow() - 1, 0), hojaExtract.getLastColumn()).getValues();
   const mapaCanonicoNIT = construirMapaCanonicoNIT(datosExtract, mapaExtract);
 
-  if (hojaTransform.getLastRow() === 0) {
-    hojaTransform.getRange(1, 1, 1, CONFIG.COL_TRANSFORM.length).setValues([CONFIG.COL_TRANSFORM]);
-    hojaTransform.getRange(1, 1, 1, CONFIG.COL_TRANSFORM.length).setFontWeight('bold');
-  }
-  const mapaTransform = obtenerMapaColumnas(hojaTransform);
-  const filasTransformExistentes = hojaTransform.getLastRow() > 1
-    ? hojaTransform.getRange(2, 1, hojaTransform.getLastRow() - 1, hojaTransform.getLastColumn()).getValues()
-    : [];
-
-  const controlPorId = {};
-  filasTransformExistentes.forEach(fila => {
-    const id = valorPorColumna(fila, mapaTransform, 'ID');
-    if (!id) return;
-    controlPorId[id] = {
-      notificado: valorPorColumna(fila, mapaTransform, 'Fecha Notificado'),
-      enProceso: valorPorColumna(fila, mapaTransform, 'Fecha En Proceso'),
-      presentado: valorPorColumna(fila, mapaTransform, 'Fecha Presentado'),
-      ultimoEnvio: valorPorColumna(fila, mapaTransform, 'Última Fecha Envío Recordatorio')
-    };
-  });
-
   const conteoFilasExactas = {};
   datosExtract.forEach(fila => {
     const clave = fila.join('|').toUpperCase();
     conteoFilasExactas[clave] = (conteoFilasExactas[clave] || 0) + 1;
   });
 
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-
   const filasNuevas = [];
   const idsYaIncluidos = new Set();
+
   datosExtract.forEach((fila, idx) => {
-    const numeroFilaReal = idx + 2; 
+    const numeroFilaReal = idx + 2;
     const companiaOriginal = valorPorColumna(fila, mapaExtract, CONFIG.COL_EXTRACT.COMPANIA);
     if (!companiaOriginal) return;
 
@@ -83,7 +60,7 @@ function transformarDatosETL() {
     const jefe1Str = contactosAString(jefe1Contactos);
     const jefe2Str = contactosAString(jefe2Contactos);
 
-     const requiereMunicipio = CONFIG.IMPUESTOS_CON_MUNICIPIO.includes(normalizarTexto(impuesto));
+    const requiereMunicipio = CONFIG.IMPUESTOS_CON_MUNICIPIO.includes(normalizarTexto(impuesto));
     const municipio = requiereMunicipio ? String(valorPorColumna(fila, mapaExtract, CONFIG.COL_EXTRACT.MUNICIPIO) || '').trim() : '';
     if (requiereMunicipio && !municipio) {
       anomalias.push([numeroFilaReal, companiaOriginal, nit, impuesto, 'Impuesto requiere Municipio pero viene vacío', '']);
@@ -98,23 +75,7 @@ function transformarDatosETL() {
 
     const fechaParaId = infoFecha.fecha ? infoFecha.fecha.toISOString() : String(fechaMaximaRaw);
     const id = generarIdObligacion(companiaNormalizada, nit, impuesto, fechaParaId, municipio);
-    const control = controlPorId[id] || {};
 
-    let estado = CONFIG.ESTADOS.PENDIENTE;
-    if (control.presentado) estado = CONFIG.ESTADOS.PRESENTADO;
-    else if (control.enProceso) estado = CONFIG.ESTADOS.EN_PROCESO;
-    else if (control.notificado) estado = CONFIG.ESTADOS.NOTIFICADO;
-
-    const diasRestantes = infoFecha.fecha ? Math.round((infoFecha.fecha - hoy) / 86400000) : '';
-
-    let extemporaneidad = '';
-    if (control.presentado && infoFecha.fecha) {
-      const fechaPres = control.presentado instanceof Date ? control.presentado : new Date(control.presentado);
-      extemporaneidad = Math.round((fechaPres - infoFecha.fecha) / 86400000);
-    }
-
-// Evita filas duplicadas en TRANSFORM: si el ID ya se usó en esta
-    // misma corrida, se omite (ya quedó registrada como anomalía arriba).
     if (idsYaIncluidos.has(id)) return;
     idsYaIncluidos.add(id);
 
@@ -125,28 +86,26 @@ function transformarDatosETL() {
       encargadoStr.nombres, encargadoStr.emails,
       jefe1Str.nombres, jefe1Str.emails,
       jefe2Str.nombres, jefe2Str.emails,
-      cifras, municipio,
-      control.notificado || '', control.enProceso || '', control.presentado || '',
-      estado, diasRestantes, extemporaneidad, control.ultimoEnvio || ''
+      cifras, municipio
     ]);
   });
 
+  if (hojaTransform.getLastRow() === 0) {
+    hojaTransform.getRange(1, 1, 1, CONFIG.COL_TRANSFORM.length).setValues([CONFIG.COL_TRANSFORM]);
+    hojaTransform.getRange(1, 1, 1, CONFIG.COL_TRANSFORM.length).setFontWeight('bold');
+  }
   const filasAntiguas = hojaTransform.getLastRow();
   if (filasAntiguas > 1) {
     hojaTransform.getRange(2, 1, filasAntiguas - 1, hojaTransform.getLastColumn()).clearContent();
   }
   if (filasNuevas.length > 0) {
     hojaTransform.getRange(2, 1, filasNuevas.length, CONFIG.COL_TRANSFORM.length).setValues(filasNuevas);
-    hojaTransform.getRange(2, 6, filasNuevas.length, 1).setNumberFormat('dd/mm/yyyy'); // Fecha máxima
+    hojaTransform.getRange(2, 6, filasNuevas.length, 1).setNumberFormat('dd/mm/yyyy');
   }
 
   escribirAnomalias(anomalias);
-  asegurarHojaParametros();
 
-  Logger.log('ETL completado: ' + filasNuevas.length + ' obligaciones procesadas, ' + anomalias.length + ' anomalías detectadas.');
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    filasNuevas.length + ' filas procesadas, ' + anomalias.length + ' anomalías en LOG_ANOMALIAS',
-    'ETL completado', 8
-  );
-  return { procesadas: filasNuevas.length, anomalias: anomalias.length };
+  Logger.log('TRANSFORM completado: ' + filasNuevas.length + ' obligaciones, ' + anomalias.length + ' anomalías.');
+  SpreadsheetApp.getActiveSpreadsheet().toast(filasNuevas.length + ' filas limpias, ' + anomalias.length + ' anomalías', 'TRANSFORM completado', 8);
+  return filasNuevas.length;
 }
