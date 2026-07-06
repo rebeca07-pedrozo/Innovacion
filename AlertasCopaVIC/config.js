@@ -35,7 +35,7 @@ const CONFIG = {
 
   COL_ANOMALIAS: ['Fila EXTRACT', 'Compañía', 'NIT', 'Impuesto', 'Motivo', 'Valor Original'],
 
-  IMPUESTOS_CON_MUNICIPIO: ['Retención de ICA', 'Autoretención de ICA', 'Exógenas'],
+  IMPUESTOS_CON_MUNICIPIO: ['retencion de ica', 'autorretencion de ica', 'autoretencion de ica', 'exogenas'],
 
   ESTADOS: {
     PENDIENTE: 'Pendiente',

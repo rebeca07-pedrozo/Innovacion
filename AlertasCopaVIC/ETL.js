@@ -55,7 +55,7 @@ function transformarDatosETL() {
   hoy.setHours(0, 0, 0, 0);
 
   const filasNuevas = [];
-
+  const idsYaIncluidos = new Set();
   datosExtract.forEach((fila, idx) => {
     const numeroFilaReal = idx + 2; 
     const companiaOriginal = valorPorColumna(fila, mapaExtract, CONFIG.COL_EXTRACT.COMPANIA);
@@ -83,7 +83,7 @@ function transformarDatosETL() {
     const jefe1Str = contactosAString(jefe1Contactos);
     const jefe2Str = contactosAString(jefe2Contactos);
 
-    const requiereMunicipio = CONFIG.IMPUESTOS_CON_MUNICIPIO.includes(impuesto);
+     const requiereMunicipio = CONFIG.IMPUESTOS_CON_MUNICIPIO.includes(normalizarTexto(impuesto));
     const municipio = requiereMunicipio ? String(valorPorColumna(fila, mapaExtract, CONFIG.COL_EXTRACT.MUNICIPIO) || '').trim() : '';
     if (requiereMunicipio && !municipio) {
       anomalias.push([numeroFilaReal, companiaOriginal, nit, impuesto, 'Impuesto requiere Municipio pero viene vacío', '']);
@@ -112,6 +112,11 @@ function transformarDatosETL() {
       const fechaPres = control.presentado instanceof Date ? control.presentado : new Date(control.presentado);
       extemporaneidad = Math.round((fechaPres - infoFecha.fecha) / 86400000);
     }
+
+// Evita filas duplicadas en TRANSFORM: si el ID ya se usó en esta
+    // misma corrida, se omite (ya quedó registrada como anomalía arriba).
+    if (idsYaIncluidos.has(id)) return;
+    idsYaIncluidos.add(id);
 
     filasNuevas.push([
       id,
