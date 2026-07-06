@@ -7,9 +7,11 @@ const CONFIG = {
 
   ANIO_REFERENCIA: null,
 
-  URL_WEBAPP: 'PEGAR_AQUI_LA_URL_DESPUES_DE_DESPLEGAR',
-  URL_LOGO_DAVIVIENDA: 'PEGAR_AQUI_TU_URL_DEL_LOGO',
+  URL_WEBAPP: 'https://script.google.com/a/macros/davivienda.com/s/AKfycbxaZBFfABWbNo5OLy0KA4wu2QghTBGNd9Eyho-PGOsqU1ycrdiepDLaISd5aTAGDhUV/exec',
+  LOGO_BASE64: 'PEGA_AQUI_TU_BASE64_QUE_YA_GENERASTE_DESDE_EL_DOC',
   URL_ICONO_CALENDARIO: 'https://cdn-icons-png.flaticon.com/512/747/747310.png',
+
+  DIAS_UMBRAL_URGENTE: 2,
 
   COL_EXTRACT: {
     COMPANIA: 'Compañía',
@@ -42,7 +44,7 @@ const CONFIG = {
     'Jefe2 Nombre', 'Jefe2 Email',
     'Cifras', 'Municipio',
     'Fecha Notificado', 'Fecha En Proceso', 'Fecha Presentado',
-    'Estado Actual', 'Días Restantes', 'Extemporaneidad (días)',
+    'Estado Actual', 'Semáforo', 'Días Restantes', 'Extemporaneidad (días)',
     'Última Fecha Envío Recordatorio'
   ],
 
@@ -112,7 +114,6 @@ function escribirAnomalias(listaAnomalias) {
   hoja.autoResizeColumns(1, CONFIG.COL_ANOMALIAS.length);
 }
 
-
 function generarIdObligacion(compania, nit, impuesto, fechaMaximaTexto, municipio) {
   const partes = [compania, nit, impuesto, fechaMaximaTexto];
   if (municipio) partes.push(municipio);
@@ -133,4 +134,10 @@ function buscarFilaPorId(hoja, id) {
     }
   }
   return null;
+}
+
+function calcularSemaforo(estado, diasRestantes) {
+  if (estado === CONFIG.ESTADOS.PRESENTADO) return '🟢';
+  if (typeof diasRestantes === 'number' && diasRestantes <= CONFIG.DIAS_UMBRAL_URGENTE) return '🔴';
+  return '🟡';
 }

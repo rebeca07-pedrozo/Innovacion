@@ -96,6 +96,16 @@ function recalcularEstadoFila(hoja, numeroFila, mapa) {
 
   hoja.getRange(numeroFila, mapa['Estado Actual'] + 1).setValue(estado);
 
+  let diasRestantes = '';
+  if (fechaMaxima instanceof Date) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    diasRestantes = Math.round((fechaMaxima - hoy) / 86400000);
+  }
+
+  const semaforo = calcularSemaforo(estado, diasRestantes);
+  hoja.getRange(numeroFila, mapa['Semáforo'] + 1).setValue(semaforo);
+
   if (presentado && fechaMaxima instanceof Date) {
     const fechaPres = presentado instanceof Date ? presentado : new Date(presentado);
     const extemporaneidad = Math.round((fechaPres - fechaMaxima) / 86400000);
