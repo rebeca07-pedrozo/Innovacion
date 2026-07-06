@@ -29,7 +29,6 @@ function enviarCorreosDiarios(nombreHoja) {
   const hoyTexto = Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const rango = obtenerRangoSemanaActual();
 
-  // Agrupar filas pendientes (de esta semana o vencidas) por email de encargado
   const grupos = {}; // email -> { nombre, filas: [{numeroFila, valores}] }
 
   datos.forEach((fila, idx) => {
@@ -41,7 +40,6 @@ function enviarCorreosDiarios(nombreHoja) {
     const yaVencida = fechaMaxima instanceof Date && fechaMaxima < rango.inicio;
     if (!email || estado === CONFIG.ESTADOS.PRESENTADO || (!dentroDeSemana && !yaVencida)) return;
 
-    // Puede haber varios encargados en un mismo campo (separados por "; ")
     const emails = String(email).split(';').map(e => e.trim()).filter(Boolean);
     const nombres = String(valorPorColumna(fila, mapa, 'Encargado Nombre') || '').split(';').map(n => n.trim());
 
@@ -65,7 +63,6 @@ function enviarCorreosDiarios(nombreHoja) {
       htmlBody: htmlCorreo
     });
 
-    // Marca la fecha de último envío (solo para auditoría)
     grupo.filas.forEach(item => {
       hoja.getRange(item.numeroFila, mapa['Última Fecha Envío Recordatorio'] + 1).setValue(hoyTexto);
     });
@@ -80,12 +77,12 @@ function enviarCorreosDiarios(nombreHoja) {
 
 /**
  * Calcula el lunes y domingo de la semana actual, y el texto
- * "5 - 11 de julio" para mostrar en el header del correo.
+ * "5 - 11 de julio" para el header del correo.
  */
 function obtenerRangoSemanaActual() {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
-  const diaSemana = hoy.getDay(); // 0=domingo, 1=lunes...
+  const diaSemana = hoy.getDay();
   const offsetLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
 
   const lunes = new Date(hoy);
@@ -104,8 +101,8 @@ function obtenerRangoSemanaActual() {
 }
 
 /**
- * HTML del correo completo para un encargado: header + una tarjeta
- * por cada obligación pendiente esta semana (tabla + 3 botones).
+ * HTML completo del correo: header CON LOGO E ÍCONO DE CALENDARIO,
+ * más una tarjeta por cada obligación pendiente esta semana.
  */
 function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) {
   const rango = obtenerRangoSemanaActual();
@@ -113,10 +110,17 @@ function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) 
 
   return `
   <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; border:1px solid #eee; border-radius:10px; overflow:hidden;">
-    <div style="background:linear-gradient(90deg, #FCEFEA, #FBD9CE); padding:16px 24px; display:flex; justify-content:space-between; align-items:center;">
-      <span style="color:#EC6E1F; font-weight:bold; font-size:18px;">🏠 DAVIVIENDA</span>
-      <span style="color:#555; font-size:13px;">📅 Semana del ${rango.texto}</span>
-    </div>
+    <table style="width:100%; background:linear-gradient(90deg, #FCEFEA, #FBD9CE); border-collapse:collapse;">
+      <tr>
+        <td style="padding:16px 24px; text-align:left; vertical-align:middle;">
+          <img src="${CONFIG.URL_LOGO_DAVIVIENDA}" style="height:26px; vertical-align:middle;" alt="Davivienda">
+        </td>
+        <td style="padding:16px 24px; text-align:right; vertical-align:middle; white-space:nowrap;">
+          <img src="${CONFIG.URL_ICONO_CALENDARIO}" style="height:16px; vertical-align:middle; margin-right:6px;" alt="Calendario">
+          <span style="color:#555; font-size:13px; vertical-align:middle;">Semana del ${rango.texto}</span>
+        </td>
+      </tr>
+    </table>
     <div style="padding:24px;">
       <h1 style="font-size:22px; margin:0 0 16px 0;">Informe de resumen vencimientos semanales</h1>
       <p style="border-left:4px solid #D0021B; padding-left:10px; margin-bottom:20px;">
@@ -128,9 +132,8 @@ function construirHtmlCorreoEncargado(nombreEncargado, filas, mapa, nombreHoja) 
 }
 
 /**
- * Una "tarjeta" = tabla de 1 obligación + los 3 botones de color,
- * igual al diseño de tu imagen. Cada botón lleva el ID de ESA
- * obligación específica.
+ * Una tarjeta = tabla de 1 obligación + los 3 botones de color.
+ * Cada botón lleva el ID de ESA obligación específica.
  */
 function construirTarjetaObligacion(item, mapa, nombreHoja) {
   const fila = item.valores;
