@@ -119,6 +119,8 @@ function paginaHtml(titulo, texto, color) {
 }
 
 function paginaFormularioPresentado(nombreHoja, id) {
+  const urlActiva = ScriptApp.getService().getUrl(); 
+
   const html = `
   <!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
   <body style="font-family:Arial, sans-serif; margin:0; padding:0; background:#f4f4f4;">
@@ -126,7 +128,9 @@ function paginaFormularioPresentado(nombreHoja, id) {
     <div style="max-width:480px; margin:40px auto; text-align:center; background:${CONFIG.COLORES_ESTADO['Presentado']}; padding:36px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08);">
       <h2 style="margin-top:0; color:#222;">Registrar presentación</h2>
       <p style="color:#444;">Inserte la fecha en la que se presentó esta obligación:</p>
-      <form action="${CONFIG.URL_WEBAPP}" method="get" target="_top">
+      
+      <form action="${urlActiva}" method="get" target="_top">
+        
         <input type="hidden" name="hoja" value="${nombreHoja}">
         <input type="hidden" name="id" value="${id}">
         <input type="hidden" name="accion" value="guardarPresentado">
@@ -136,5 +140,6 @@ function paginaFormularioPresentado(nombreHoja, id) {
       </form>
     </div>
   </body></html>`;
+  
   return HtmlService.createHtmlOutput(html).setTitle('Registrar presentación');
 }
