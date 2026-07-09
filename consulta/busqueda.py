@@ -1,21 +1,12 @@
-# ============================================
 # CELDA 1: Autenticación con Google Drive
-# ============================================
-from google.colab import auth
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-import openpyxl
-from openpyxl.styles import Font
-import io
+
 
 auth.authenticate_user()
 drive_service = build('drive', 'v3')
 
-print("✅ Autenticación exitosa")
+print("Autenticación exitosa")
 
-# ============================================
 # CELDA 2: Listar subcarpetas de una carpeta dada
-# ============================================
 
 def listar_subcarpetas(id_carpeta_padre):
     """
@@ -42,15 +33,15 @@ def elegir_subcarpeta(id_carpeta_padre):
     subcarpetas = listar_subcarpetas(id_carpeta_padre)
     
     if not subcarpetas:
-        print("⚠️ No se encontraron subcarpetas dentro de esta carpeta.")
+        print(" No se encontraron subcarpetas dentro de esta carpeta.")
         return None
     
-    print("📁 Subcarpetas encontradas:\n")
+    print(" Subcarpetas encontradas:\n")
     for i, carpeta in enumerate(subcarpetas, start=1):
         print(f"  {i}. {carpeta['name']}")
     
     while True:
-        seleccion = input("\n👉 Escribe el número de la subcarpeta que quieres revisar: ")
+        seleccion = input("\n Escribe el número de la subcarpeta que quieres revisar: ")
         try:
             indice = int(seleccion) - 1
             if 0 <= indice < len(subcarpetas):
@@ -58,22 +49,17 @@ def elegir_subcarpeta(id_carpeta_padre):
                 print(f"\n✅ Elegiste: {elegida['name']}")
                 return elegida['id'], elegida['name']
             else:
-                print("❌ Número fuera de rango, intenta de nuevo.")
+                print(" Número fuera de rango, intenta de nuevo.")
         except ValueError:
-            print("❌ Escribe solo el número, intenta de nuevo.")
+            print(" Escribe solo el número, intenta de nuevo.")
 
-            # ============================================
 # CELDA 3: Pega aquí el ID de la carpeta principal y ejecuta
-# ============================================
 
 ID_CARPETA_PRINCIPAL = "PEGA_AQUI_EL_ID_DE_LA_CARPETA"  # <-- reemplaza esto
 
 id_subcarpeta_elegida, nombre_subcarpeta_elegida = elegir_subcarpeta(ID_CARPETA_PRINCIPAL)
 
-
-# ============================================
 # CELDA 4: Buscar PDFs dentro de la subcarpeta y generar Excel
-# ============================================
 
 def listar_pdfs(id_carpeta):
     """
@@ -99,23 +85,20 @@ def crear_excel_con_pdfs(id_subcarpeta, nombre_subcarpeta):
     pdfs = listar_pdfs(id_subcarpeta)
     
     if not pdfs:
-        print("⚠️ No se encontraron archivos PDF en esta subcarpeta.")
+        print(" No se encontraron archivos PDF en esta subcarpeta.")
         return
     
-    print(f"📄 Se encontraron {len(pdfs)} archivos PDF. Generando Excel...")
+    print(f" Se encontraron {len(pdfs)} archivos PDF. Generando Excel...")
     
-    # --- Crear libro de Excel con openpyxl ---
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Listado PDFs"
     
-    # Encabezados
     ws["A1"] = "Nombre del archivo"
     ws["B1"] = "Link del PDF"
     ws["A1"].font = Font(bold=True)
     ws["B1"].font = Font(bold=True)
     
-    # Filas con los datos
     for fila, pdf in enumerate(pdfs, start=2):
         nombre = pdf['name']
         link = pdf.get('webViewLink', f"https://drive.google.com/file/d/{pdf['id']}/view")
@@ -125,11 +108,9 @@ def crear_excel_con_pdfs(id_subcarpeta, nombre_subcarpeta):
         celda_link.hyperlink = link
         celda_link.font = Font(color="0563C1", underline="single")
     
-    # Ajustar ancho de columnas
     ws.column_dimensions['A'].width = 50
     ws.column_dimensions['B'].width = 60
     
-    # --- Guardar en memoria y subir a Drive ---
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
@@ -154,10 +135,9 @@ def crear_excel_con_pdfs(id_subcarpeta, nombre_subcarpeta):
         fields='id, webViewLink'
     ).execute()
     
-    print(f"\n✅ Excel creado exitosamente: {nombre_archivo_excel}")
+    print(f"\n Excel creado exitosamente: {nombre_archivo_excel}")
     print(f"🔗 Link del Excel: {archivo_creado.get('webViewLink')}")
 
 
-# --- Ejecutar ---
 if id_subcarpeta_elegida:
     crear_excel_con_pdfs(id_subcarpeta_elegida, nombre_subcarpeta_elegida)
