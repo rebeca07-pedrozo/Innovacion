@@ -1,73 +1,88 @@
-# Bloque 1
-!pip install xlsxwriter -q
+#  1
+!pip install xlsxwriter psutil -q
+
+import psutil, gc, os
+
+def ram(etiqueta=""):
+    """Muestra RAM usada. Llámala entre bloques para ver dónde se dispara."""
+    p = psutil.Process(os.getpid())
+    usada = p.memory_info().rss / 1024**3
+    v = psutil.virtual_memory()
+    total, disp = v.total / 1024**3, v.available / 1024**3
+    barra = "#" * int(20 * usada / total) + "." * (20 - int(20 * usada / total))
+    alerta = "  <-- CRÍTICO" if disp < 1.5 else ""
+    print(f"  RAM [{barra}] {usada:.2f} / {total:.1f} GB  "
+          f"| libre {disp:.2f} GB {etiqueta}{alerta}")
+    return disp
+
+def liberar(*objetos):
+    """Borra objetos y fuerza recolección de basura."""
+    for o in objetos:
+        try:
+            del o
+        except Exception:
+            pass
+    gc.collect()
+
+ram("inicio")
+
+#2
 
 import pandas as pd
 import numpy as np
-import glob
-import os
-import re
-import shutil
-import time
-import unicodedata
+import glob, os, re, shutil, time, gc, unicodedata
 from datetime import datetime, timedelta
 
 from google.colab import drive
 drive.mount('/content/drive')
 
+pd.set_option("mode.copy_on_write", True)   # evita copias intermedias
 print("Librerías cargadas.")
+ram("post-imports")
 
-#Bloque 2
-# === Rutas ===
+
+#3
 CARPETA_BASE       = "/content/drive/My Drive/Optimizacion-Premios/2026/"
 CARPETA_ENTRADA    = os.path.join(CARPETA_BASE, "Entrada")
 CARPETA_SALIDA     = os.path.join(CARPETA_BASE, "Salida")
 CARPETA_PROCESADOS = os.path.join(CARPETA_BASE, "Procesados")
+CARPETA_TEMP       = "/content/temp_premios"      # disco local, NO Drive
 
 ANIO_GRAVABLE = 2026
 
-# === Control del movimiento de archivos ===
-# Déjalo en False mientras pruebas. Cuando confirmes que el consolidado
-# sale bien, cámbialo a True y corre el BLOQUE 10.
+# === Memoria ===
+MODO_BAJO_CONSUMO = True    # lectura por streaming + checkpoints en disco
+UMBRAL_RAM_GB     = 1.5     # si baja de esto, vuelca a disco y libera
+CHECKPOINT        = True    # guarda avance en parquet por si se cae la sesión
+
 MOVER_PROCESADOS = False
+FILA_ENCABEZADO  = None
+COL_VALOR = COL_PREMIO = COL_MES = None
 
-# === Estructura del archivo ===
-FILA_ENCABEZADO = None      # None = detectar. Si falla: 6 (fila de Excel)
+UVT = 52_374
+TOPE_PREMIOS, TOPE_OTROS = 48 * UVT, 27 * UVT
+TARIFA_PREMIOS, TARIFA_OTROS = 20.0, 3.5
 
-# === Columnas clave ===
-COL_VALOR  = None           # None = buscar por encabezado. Si falla: "M"
-COL_PREMIO = None           # None = buscar por encabezado. Si falla: "K"
-COL_MES    = None           # None = buscar por encabezado. Si falla: "B"
-
-# === Tarifas y topes ===
-UVT = 52_374                # <-- VERIFICAR el UVT del año gravable
-TOPE_PREMIOS   = 48 * UVT
-TOPE_OTROS     = 27 * UVT
-TARIFA_PREMIOS = 20.0
-TARIFA_OTROS   = 3.5
-
-for c in (CARPETA_ENTRADA, CARPETA_SALIDA, CARPETA_PROCESADOS):
+for c in (CARPETA_ENTRADA, CARPETA_SALIDA, CARPETA_PROCESADOS, CARPETA_TEMP):
     os.makedirs(c, exist_ok=True)
 
-print(f"Entrada:    {CARPETA_ENTRADA}")
-print(f"Salida:     {CARPETA_SALIDA}")
-print(f"Procesados: {CARPETA_PROCESADOS}")
-print(f"\nMover procesados: {MOVER_PROCESADOS}")
-print(f"Tope premios (48 UVT): {TOPE_PREMIOS:,.0f}")
-print(f"Tope otros   (27 UVT): {TOPE_OTROS:,.0f}")
+print(f"Modo bajo consumo: {MODO_BAJO_CONSUMO}   |   Checkpoints: {CHECKPOINT}")
+print(f"Temp local: {CARPETA_TEMP}  (más rápido que Drive)")
 
-#Bloque 3 
-def sin_tildes(texto):
-    return "".join(c for c in unicodedata.normalize("NFD", str(texto))
+#4
+
+def sin_tildes(t):
+    return "".join(c for c in unicodedata.normalize("NFD", str(t))
                    if unicodedata.category(c) != "Mn")
 
-def limpiar_encabezado(texto):
-    return re.sub(r"\s+", " ", sin_tildes(texto).upper().strip())
+def limpiar_encabezado(t):
+    return re.sub(r"\s+", " ", sin_tildes(t).upper().strip())
 
-def letra_a_indice(letra):
-    idx = 0
-    for c in str(letra).strip().upper():
-        idx = idx * 26 + (ord(c) - 64)
-    return idx - 1
+def letra_a_indice(l):
+    i = 0
+    for c in str(l).strip().upper():
+        i = i * 26 + (ord(c) - 64)
+    return i - 1
 
 def indice_a_letra(i):
     s = ""; i += 1
@@ -77,104 +92,80 @@ def indice_a_letra(i):
     return s
 
 
-# ---------------------------------------------------------------- NÚMEROS
-def normalizar_numero(valor):
+def normalizar_numero(v):
     """1.234.567,89 | 1,234,567.89 | $ 1.234.567 | (1.234) | 1234"""
-    if isinstance(valor, (int, float, np.integer, np.floating)):
-        return np.nan if pd.isna(valor) else float(valor)
-    if valor is None:
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return np.nan if pd.isna(v) else float(v)
+    if v is None:
         return np.nan
-
-    s = str(valor).replace("\xa0", " ")
-    s = s.replace("\u2212", "-").replace("–", "-")
+    s = str(v).replace("\xa0", " ").replace("\u2212", "-").replace("–", "-")
     s = re.sub(r"[^\d,\.\-()]", "", s).strip()
     if s in ("", "-", ".", ","):
         return np.nan
-
-    negativo = (s.startswith("(") and s.endswith(")")) or s.startswith("-")
+    neg = (s.startswith("(") and s.endswith(")")) or s.startswith("-")
     s = s.strip("()").lstrip("-")
-
-    hay_coma, hay_punto = "," in s, "." in s
-    if hay_coma and hay_punto:
-        # el separador MÁS A LA DERECHA es el decimal
-        if s.rfind(",") > s.rfind("."):
-            s = s.replace(".", "").replace(",", ".")   # formato colombiano
-        else:
-            s = s.replace(",", "")                     # formato americano
-    elif hay_coma:
+    hc, hp = "," in s, "." in s
+    if hc and hp:
+        s = (s.replace(".", "").replace(",", ".") if s.rfind(",") > s.rfind(".")
+             else s.replace(",", ""))
+    elif hc:
         p = s.split(",")
         s = s.replace(",", ".") if (len(p) == 2 and len(p[1]) != 3) else s.replace(",", "")
-    elif hay_punto:
+    elif hp:
         p = s.split(".")
         if not (len(p) == 2 and len(p[1]) != 3):
             s = s.replace(".", "")
-
     try:
-        v = float(s)
+        x = float(s)
     except ValueError:
         return np.nan
-    return -v if negativo else v
+    return -x if neg else x
 
 
-# ------------------------------------------------------------------ SI/NO
 _SI = {"SI", "S", "1", "1.0", "X", "TRUE", "VERDADERO", "SIP", "SII"}
 _NO = {"NO", "N", "0", "0.0", "FALSE", "FALSO", "NA", "N/A", "NINGUNO"}
 
-def normalizar_si_no(valor):
-    """si / Si / SÍ / sí. / 1 / x -> 'SI'    |    no / No / N -> 'NO'"""
-    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+def normalizar_si_no(v):
+    if v is None or (isinstance(v, float) and pd.isna(v)):
         return ""
-    s = sin_tildes(valor).upper().strip().replace(".", "").replace(" ", "")
-    if s in _SI:
-        return "SI"
-    if s in _NO:
-        return "NO"
-    return s
+    s = sin_tildes(v).upper().strip().replace(".", "").replace(" ", "")
+    return "SI" if s in _SI else "NO" if s in _NO else s
 
 
-# ------------------------------------------------------------------- MESES
-MESES_NOMBRE = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
-                5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
-                9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+MESES_NOMBRE = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",
+                7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",
+                11:"Noviembre",12:"Diciembre"}
 
 _ALIAS_MES = {}
 for _n, _nom in MESES_NOMBRE.items():
     _b = sin_tildes(_nom).upper()
-    _ALIAS_MES[_b] = _n
-    _ALIAS_MES[_b[:3]] = _n
-    _ALIAS_MES[f"{_n:02d}"] = _n
-_ALIAS_MES.update({
-    "SETIEMBRE": 9, "SET": 9, "SEPT": 9, "SBRE": 9, "SEPTBRE": 9,
-    "AGTO": 8, "AGST": 8, "OCTB": 10, "OCTBRE": 10,
-    "NVBRE": 11, "NOVBRE": 11, "DICBRE": 12, "DBRE": 12,
-    "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "JUNE": 6,
-    "JULY": 7, "AUGUST": 8, "SEPTEMBER": 9, "OCTOBER": 10,
-    "NOVEMBER": 11, "DECEMBER": 12,
-})
+    _ALIAS_MES[_b] = _ALIAS_MES[_b[:3]] = _ALIAS_MES[f"{_n:02d}"] = _n
+_ALIAS_MES.update({"SETIEMBRE":9,"SET":9,"SEPT":9,"SBRE":9,"SEPTBRE":9,
+                   "AGTO":8,"AGST":8,"OCTB":10,"OCTBRE":10,"NVBRE":11,
+                   "NOVBRE":11,"DICBRE":12,"DBRE":12,
+                   "JANUARY":1,"FEBRUARY":2,"MARCH":3,"APRIL":4,"JUNE":6,
+                   "JULY":7,"AUGUST":8,"SEPTEMBER":9,"OCTOBER":10,
+                   "NOVEMBER":11,"DECEMBER":12})
 
-def normalizar_mes(valor):
-    """enero / ENERO / Ene. / Énero / 1 / 01 / 'ENERO 2026' / fecha real"""
-    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+def normalizar_mes(v):
+    if v is None or (isinstance(v, float) and pd.isna(v)):
         return (None, "")
-    if isinstance(valor, (datetime, pd.Timestamp)):
-        return (valor.month, MESES_NOMBRE[valor.month])
-    if isinstance(valor, (int, float, np.integer, np.floating)):
-        if pd.isna(valor):
+    if isinstance(v, (datetime, pd.Timestamp)):
+        return (v.month, MESES_NOMBRE[v.month])
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        if pd.isna(v):
             return (None, "")
-        n = int(valor)
+        n = int(v)
         return (n, MESES_NOMBRE[n]) if 1 <= n <= 12 else (None, "")
-
-    s = sin_tildes(valor).upper().strip().replace(".", "").replace("_", " ")
+    s = sin_tildes(v).upper().strip().replace(".", "").replace("_", " ")
     s = re.sub(r"\s+", " ", s).strip()
     if not s:
         return (None, "")
     if s in _ALIAS_MES:
-        n = _ALIAS_MES[s]
-        return (n, MESES_NOMBRE[n])
-    for token in re.split(r"[\s/\-]+", s):
-        if token in _ALIAS_MES:
-            n = _ALIAS_MES[token]
-            return (n, MESES_NOMBRE[n])
+        n = _ALIAS_MES[s]; return (n, MESES_NOMBRE[n])
+    for tok in re.split(r"[\s/\-]+", s):
+        if tok in _ALIAS_MES:
+            n = _ALIAS_MES[tok]; return (n, MESES_NOMBRE[n])
     try:
         f = pd.to_datetime(s, dayfirst=True)
         return (f.month, MESES_NOMBRE[f.month])
@@ -182,135 +173,179 @@ def normalizar_mes(valor):
         return (None, "")
 
 
-# --------------------------------------------------- BÚSQUEDA DE COLUMNAS
-def buscar_columna(columnas, exactos=(), contiene=(), excluir=()):
-    limpias = [limpiar_encabezado(c) for c in columnas]
-    for i, h in enumerate(limpias):
+def buscar_columna(cols, exactos=(), contiene=(), excluir=()):
+    lim = [limpiar_encabezado(c) for c in cols]
+    for i, h in enumerate(lim):
         if h in exactos and not any(x in h for x in excluir):
             return i
-    for i, h in enumerate(limpias):
+    for i, h in enumerate(lim):
         if any(t in h for t in contiene) and not any(x in h for x in excluir):
             return i
     return None
 
 
-def detectar_fila_encabezado(crudo, max_filas=25):
-    """La fila de encabezado es la primera con mayoría de celdas de texto."""
-    mejor, mejor_score = None, 0
-    for i in range(min(max_filas, len(crudo))):
-        fila = crudo.iloc[i]
+# ============================================================ MEMORIA
+def optimizar_memoria(df, verbose=False):
+    """
+    Reduce el consumo del DataFrame:
+      - texto repetitivo -> category  (Sucursal, Oficina, Descripción...)
+      - enteros -> el int más pequeño que quepa
+      - float64 -> float32 donde no se pierde precisión contable
+    En un mayor contable típico baja el consumo 60-80 %.
+    """
+    antes = df.memory_usage(deep=True).sum() / 1024**2
+
+    for col in df.columns:
+        s = df[col]
+        if s.dtype == "object":
+            n = len(s)
+            if n and s.nunique(dropna=False) / n < 0.5:   # muy repetitivo
+                df[col] = s.astype("category")
+        elif pd.api.types.is_integer_dtype(s):
+            df[col] = pd.to_numeric(s, downcast="integer")
+        elif pd.api.types.is_float_dtype(s):
+            df[col] = pd.to_numeric(s, downcast="float")
+
+    despues = df.memory_usage(deep=True).sum() / 1024**2
+    if verbose:
+        ahorro = 100 * (1 - despues / antes) if antes else 0
+        print(f"     memoria: {antes:.1f} -> {despues:.1f} MB  (-{ahorro:.0f} %)")
+    return df
+
+
+def leer_encabezado(archivo, max_filas=25):
+    """
+    Detecta la fila de encabezado leyendo SOLO las primeras filas.
+    Antes se leía el archivo completo dos veces.
+    """
+    muestra = pd.read_excel(archivo, sheet_name=0, header=None,
+                            nrows=max_filas, dtype=object)
+    mejor, score = None, 0
+    for i in range(len(muestra)):
+        fila = muestra.iloc[i]
         textos = sum(1 for v in fila if isinstance(v, str) and v.strip())
         llenas = fila.notna().sum()
-        if llenas and textos / max(llenas, 1) > 0.7 and textos > mejor_score:
-            mejor, mejor_score = i, textos
+        if llenas and textos / max(llenas, 1) > 0.7 and textos > score:
+            mejor, score = i, textos
+    del muestra; gc.collect()
     return mejor
 
+print("Funciones listas.")
+ram("post-funciones")
 
-# --- prueba rápida ---
-print("SI/NO:")
-for p in ["sí", "SI ", "no", "N", "x", "1", "Talvez"]:
-    print(f"   {p!r:12} -> {normalizar_si_no(p)!r}")
-print("\nMESES:")
-for m in ["enero", "ENERO", "Ene.", "01", 3, "SETIEMBRE", "MARZO 2026", "Trimestre 1"]:
-    print(f"   {m!r:15} -> {normalizar_mes(m)}")
-print("\nNÚMEROS:")
-for n in ["1.234.567,89", "1,234,567.89", "$ 2.514.000", "(1.234)", 15000, "-"]:
-    print(f"   {n!r:16} -> {normalizar_numero(n)}")
-
-#Bloque 4 
+#5
 EXTENSIONES = (".xlsx", ".xlsm", ".xls")
-
-if not os.path.isdir(CARPETA_ENTRADA):
-    raise FileNotFoundError(f"La carpeta no existe: {CARPETA_ENTRADA}")
 
 archivos, ignorados = [], []
 for f in sorted(os.listdir(CARPETA_ENTRADA)):
-    ruta = os.path.join(CARPETA_ENTRADA, f)
-    if not os.path.isfile(ruta) or f.startswith(("~$", ".")):
+    r = os.path.join(CARPETA_ENTRADA, f)
+    if not os.path.isfile(r) or f.startswith(("~$", ".")):
         continue
-    if os.path.splitext(f)[1].lower() in EXTENSIONES:
-        archivos.append(ruta)
-    else:
-        ignorados.append(f)
+    (archivos if os.path.splitext(f)[1].lower() in EXTENSIONES
+     else ignorados).append(r if os.path.splitext(f)[1].lower() in EXTENSIONES else f)
 
 if ignorados:
     print("[AVISO] Ignorados por extensión:")
     for f in ignorados:
-        nota = "  <-- posible Google Sheet nativo" if not os.path.splitext(f)[1] else ""
-        print(f"    {f!r}{nota}")
+        print(f"    {f!r}" + ("  <-- posible Google Sheet nativo"
+                              if not os.path.splitext(f)[1] else ""))
     print()
 
 if not archivos:
     raise FileNotFoundError(f"No hay archivos de Excel en: {CARPETA_ENTRADA}")
 
-print(f"Archivos a procesar: {len(archivos)}\n")
+tam_total = sum(os.path.getsize(a) for a in archivos) / 1024**2
+print(f"Archivos: {len(archivos)}  |  {tam_total:.1f} MB en disco")
+print(f"(en RAM ocuparán aprox. {tam_total * 6:.0f} MB ya optimizados)\n")
 
-frames = []
+frames, ARCHIVOS_OK, ARCHIVOS_FALLA, checkpoints = [], [], [], []
 columnas_referencia = None
-ARCHIVOS_OK = []        # rutas que SÍ entraron al consolidado -> se mueven
-ARCHIVOS_FALLA = []     # rutas con problema -> se quedan en Entrada
 
-for archivo in archivos:
+for k, archivo in enumerate(archivos, 1):
     nombre = os.path.basename(archivo)
     try:
-        crudo = pd.read_excel(archivo, sheet_name=0, header=None, dtype=object)
+        fila_enc = ((FILA_ENCABEZADO - 1) if FILA_ENCABEZADO
+                    else leer_encabezado(archivo))
+        if fila_enc is None:
+            raise ValueError("no se detectó fila de encabezado")
+
+        # SIN dtype=object: dejamos que pandas infiera tipos nativos.
+        # normalizar_numero() maneja igual texto o número, así que no
+        # perdemos nada y ahorramos 10-15x de RAM.
+        df = pd.read_excel(archivo, sheet_name=0, header=fila_enc)
+
+        df = df.dropna(how="all").dropna(axis=1, how="all")
+        df = df.loc[:, [c for c in df.columns if not str(c).startswith("Unnamed:")]]
+
+        primera = df.columns[0]
+        df = df[~df[primera].astype(str).str.upper().str.strip()
+                .isin([limpiar_encabezado(primera), "TOTAL", "TOTALES", "NAN", ""])]
+
+        if df.empty:
+            raise ValueError("vacío tras la limpieza")
+
+        if columnas_referencia is None:
+            columnas_referencia = list(df.columns)
+        elif list(df.columns) != columnas_referencia:
+            if len(df.columns) == len(columnas_referencia):
+                print(f"  [AVISO] {nombre}: encabezados distintos -> alineado por posición.")
+                df.columns = columnas_referencia
+            else:
+                raise ValueError(f"{len(df.columns)} columnas vs "
+                                 f"{len(columnas_referencia)} del primero")
+
+        df["Archivo Origen"] = nombre
+        df = optimizar_memoria(df)
+
+        print(f"  [{k}/{len(archivos)}] OK  {nombre}  |  fila enc. {fila_enc+1}  |  "
+              f"{len(df):,} filas")
+
+        # --- Si la RAM se está agotando, vuelca a disco local y libera ---
+        libre = ram()
+        if MODO_BAJO_CONSUMO and libre < UMBRAL_RAM_GB and frames:
+            ruta_ck = os.path.join(CARPETA_TEMP, f"ck_{len(checkpoints):03d}.parquet")
+            pd.concat(frames, ignore_index=True).to_parquet(ruta_ck, index=False)
+            checkpoints.append(ruta_ck)
+            print(f"     [CHECKPOINT] volcado a disco -> {os.path.basename(ruta_ck)}")
+            frames.clear(); gc.collect()
+
+        frames.append(df)
+        ARCHIVOS_OK.append(archivo)
+
     except Exception as e:
-        print(f"  [ERROR] {nombre}: {e}")
+        print(f"  [{k}/{len(archivos)}] [ERROR] {nombre}: {e}")
         ARCHIVOS_FALLA.append((archivo, str(e)))
-        continue
+    finally:
+        for v in ("df",):
+            if v in dir():
+                pass
+        gc.collect()
 
-    fila_enc = (FILA_ENCABEZADO - 1) if FILA_ENCABEZADO else detectar_fila_encabezado(crudo)
-    if fila_enc is None:
-        print(f"  [ERROR] {nombre}: no se detectó fila de encabezado.")
-        ARCHIVOS_FALLA.append((archivo, "sin fila de encabezado"))
-        continue
-
-    df = pd.read_excel(archivo, sheet_name=0, header=fila_enc, dtype=object)
-    df = df.dropna(how="all").dropna(axis=1, how="all")
-    df = df.loc[:, [c for c in df.columns if not str(c).startswith("Unnamed:")]]
-
-    primera = df.columns[0]
-    df = df[~df[primera].astype(str).str.upper().str.strip()
-            .isin([limpiar_encabezado(primera), "TOTAL", "TOTALES", "NAN", ""])]
-
-    if df.empty:
-        print(f"  [AVISO] {nombre}: quedó vacío tras la limpieza.")
-        ARCHIVOS_FALLA.append((archivo, "vacío tras limpieza"))
-        continue
-
-    # pd.concat une por NOMBRE de columna: si un archivo trae 'VALOR ' con
-    # espacio y otro 'VALOR', pandas crea dos columnas y todo se desalinea.
-    if columnas_referencia is None:
-        columnas_referencia = list(df.columns)
-    elif list(df.columns) != columnas_referencia:
-        if len(df.columns) == len(columnas_referencia):
-            print(f"  [AVISO] {nombre}: encabezados distintos -> alineado por posición.")
-            df.columns = columnas_referencia
-        else:
-            print(f"  [ERROR] {nombre}: {len(df.columns)} columnas vs "
-                  f"{len(columnas_referencia)} del primero. ESTRUCTURA DISTINTA.")
-            ARCHIVOS_FALLA.append((archivo, "número de columnas distinto"))
-            continue
-
-    df["Archivo Origen"] = nombre
-    frames.append(df)
-    ARCHIVOS_OK.append(archivo)
-    print(f"  OK  {nombre}  |  encabezado fila {fila_enc + 1}  |  "
-          f"{len(df)} filas x {len(df.columns) - 1} cols")
-
-if not frames:
+if not frames and not checkpoints:
     raise ValueError("Ningún archivo pudo procesarse.")
 
-df_consolidado = pd.concat(frames, ignore_index=True)
+# --- Unión final: primero disco, luego memoria ---
+partes = [pd.read_parquet(c) for c in checkpoints] + frames
+df_consolidado = pd.concat(partes, ignore_index=True, copy=False)
 
-print(f"\nConsolidado: {len(df_consolidado)} filas x {len(df_consolidado.columns)} columnas")
-print(f"Procesados OK: {len(ARCHIVOS_OK)}   |   Con falla: {len(ARCHIVOS_FALLA)}")
-if ARCHIVOS_FALLA:
-    print("\nEstos se quedan en Entrada para revisión:")
-    for r, motivo in ARCHIVOS_FALLA:
-        print(f"    {os.path.basename(r)}  ->  {motivo}")
+liberar(partes, frames)
+del partes
+frames = []
+gc.collect()
 
-#Bloque 5 
+for c in checkpoints:
+    try: os.remove(c)
+    except Exception: pass
+
+df_consolidado = optimizar_memoria(df_consolidado, verbose=True)
+
+print(f"\nConsolidado: {len(df_consolidado):,} filas x {len(df_consolidado.columns)} cols")
+print(f"OK: {len(ARCHIVOS_OK)}   |   Falla: {len(ARCHIVOS_FALLA)}")
+for r, m in ARCHIVOS_FALLA:
+    print(f"    (se queda en Entrada) {os.path.basename(r)}  ->  {m}")
+ram("post-consolidación")
+
+#6
 cols = [c for c in df_consolidado.columns if c != "Archivo Origen"]
 
 print("=" * 100)
@@ -322,78 +357,88 @@ for i, c in enumerate(cols):
 print("=" * 100 + "\n")
 
 idx_valor = (letra_a_indice(COL_VALOR) if COL_VALOR else buscar_columna(
-    cols,
-    exactos=("VALOR", "BASE", "IMPORTE", "MONTO", "VALOR BASE", "BASE GRAVABLE"),
-    contiene=("VALOR", "BASE", "IMPORTE", "MONTO", "DEBITO", "CREDITO", "SALDO"),
-    excluir=("RETENCION", "TARIFA", "IVA", "FECHA", "CODIGO")))
-
+    cols, exactos=("VALOR","BASE","IMPORTE","MONTO","VALOR BASE","BASE GRAVABLE"),
+    contiene=("VALOR","BASE","IMPORTE","MONTO","DEBITO","CREDITO","SALDO"),
+    excluir=("RETENCION","TARIFA","IVA","FECHA","CODIGO")))
 idx_premio = (letra_a_indice(COL_PREMIO) if COL_PREMIO else buscar_columna(
-    cols,
-    exactos=("PREMIO", "ES PREMIO", "PREMIOS", "APLICA PREMIO", "SI/NO"),
+    cols, exactos=("PREMIO","ES PREMIO","PREMIOS","APLICA PREMIO","SI/NO"),
     contiene=("PREMIO",)))
-
 idx_mes = (letra_a_indice(COL_MES) if COL_MES else buscar_columna(
-    cols,
-    exactos=("MES", "PERIODO", "PERIODO GRAVABLE", "MES DECLARADO"),
-    contiene=("MES", "PERIODO", "FECHA")))
+    cols, exactos=("MES","PERIODO","PERIODO GRAVABLE","MES DECLARADO"),
+    contiene=("MES","PERIODO","FECHA")))
 
 print("COLUMNAS RESUELTAS:")
 faltan = []
-for etiqueta, idx, param in [("VALOR / BASE", idx_valor,  "COL_VALOR"),
-                             ("SI/NO PREMIO", idx_premio, "COL_PREMIO"),
-                             ("MES",          idx_mes,    "COL_MES")]:
+for et, idx, par in [("VALOR / BASE", idx_valor, "COL_VALOR"),
+                     ("SI/NO PREMIO", idx_premio, "COL_PREMIO"),
+                     ("MES", idx_mes, "COL_MES")]:
     if idx is None:
-        print(f"   [X] {etiqueta:<14} NO ENCONTRADA -> define {param} en el BLOQUE 2")
-        faltan.append(param)
+        print(f"   [X] {et:<14} NO ENCONTRADA -> define {par} en el BLOQUE 2")
+        faltan.append(par)
     else:
-        print(f"   [OK] {etiqueta:<14} col {indice_a_letra(idx)} (idx {idx}) -> '{cols[idx]}'")
+        print(f"   [OK] {et:<14} col {indice_a_letra(idx)} (idx {idx}) -> '{cols[idx]}'")
         print(f"        muestra: {df_consolidado[cols[idx]].dropna().head(4).tolist()}")
-
 if faltan:
-    raise ValueError(f"Define estos parámetros en el BLOQUE 2 y vuelve a correr: {faltan}")
+    raise ValueError(f"Define en el BLOQUE 2 y vuelve a correr: {faltan}")
 
-#Bloque 6
+#7
 col_valor, col_premio, col_mes = cols[idx_valor], cols[idx_premio], cols[idx_mes]
 
-df_consolidado["Base Normalizada"] = df_consolidado[col_valor].map(normalizar_numero)
-df_consolidado["Es Premio"]        = df_consolidado[col_premio].map(normalizar_si_no)
+# .map() sobre una categoría solo evalúa los valores ÚNICOS, no fila por fila.
+# En 300.000 filas con 40 valores distintos de mes, son 40 llamadas en vez
+# de 300.000. Por eso convertimos primero.
+def mapear_eficiente(serie, funcion):
+    unicos = pd.Series(serie.dropna().unique())
+    tabla = dict(zip(unicos, unicos.map(funcion)))
+    return serie.map(tabla)
 
-_m = df_consolidado[col_mes].map(normalizar_mes)
-df_consolidado["Mes Num"] = [x[0] for x in _m]
-df_consolidado["Mes"]     = [x[1] for x in _m]
-df_consolidado["Periodo"] = [f"{ANIO_GRAVABLE}-{int(n):02d}" if pd.notna(n) else ""
-                             for n in df_consolidado["Mes Num"]]
+df_consolidado["Base Normalizada"] = pd.to_numeric(
+    mapear_eficiente(df_consolidado[col_valor].astype(object), normalizar_numero),
+    errors="coerce", downcast="float")
+
+df_consolidado["Es Premio"] = mapear_eficiente(
+    df_consolidado[col_premio].astype(object), normalizar_si_no
+).fillna("").astype("category")
+
+_m = mapear_eficiente(df_consolidado[col_mes].astype(object), normalizar_mes)
+df_consolidado["Mes Num"] = pd.to_numeric([x[0] if isinstance(x, tuple) else None
+                                           for x in _m], errors="coerce")
+df_consolidado["Mes"] = pd.Series([x[1] if isinstance(x, tuple) else "" for x in _m],
+                                  index=df_consolidado.index).astype("category")
+liberar(_m); del _m
+
+df_consolidado["Periodo"] = pd.Series(
+    [f"{ANIO_GRAVABLE}-{int(n):02d}" if pd.notna(n) else ""
+     for n in df_consolidado["Mes Num"]],
+    index=df_consolidado.index).astype("category")
 
 print("--- CONTROL DE CALIDAD ---\n")
-
-n = df_consolidado["Base Normalizada"].isna().sum()
+n = int(df_consolidado["Base Normalizada"].isna().sum())
 if n:
-    print(f"[!] {n} filas con base no numérica. Valores crudos:")
+    print(f"[!] {n:,} filas con base no numérica. Crudos:")
     print("   ", df_consolidado.loc[df_consolidado['Base Normalizada'].isna(), col_valor]
           .dropna().astype(str).unique()[:10], "\n")
 else:
     print("[OK] Todas las bases se convirtieron a número.\n")
 
-raros = sorted(set(df_consolidado["Es Premio"]) - {"SI", "NO", ""})
-if raros:
-    print(f"[!] Valores no reconocidos en '{col_premio}': {raros}\n")
-else:
-    print("[OK] Columna SI/NO normalizada sin residuos.\n")
+raros = sorted(set(df_consolidado["Es Premio"].cat.categories) - {"SI","NO",""})
+print(f"[!] No reconocidos en '{col_premio}': {raros}\n" if raros
+      else "[OK] Columna SI/NO sin residuos.\n")
 
-n = df_consolidado["Mes Num"].isna().sum()
+n = int(df_consolidado["Mes Num"].isna().sum())
 if n:
-    print(f"[!] {n} filas sin mes reconocible. Valores crudos:")
+    print(f"[!] {n:,} filas sin mes reconocible. Crudos:")
     print("   ", df_consolidado.loc[df_consolidado['Mes Num'].isna(), col_mes]
           .dropna().astype(str).unique()[:10], "\n")
 else:
-    print("[OK] Todos los meses se reconocieron.\n")
+    print("[OK] Todos los meses reconocidos.\n")
 
-print("Meses detectados:")
 print(df_consolidado["Mes"].value_counts().to_string())
-print(f"\nSuma total de bases: {df_consolidado['Base Normalizada'].sum():,.0f}")
+print(f"\nSuma de bases: {df_consolidado['Base Normalizada'].sum():,.0f}")
+ram("post-normalización")
 
-#Bloque 7
-df_consolidado["Tarifa Retención (%)"] = 0.0
+#8
+df_consolidado["Tarifa Retención (%)"] = np.float32(0.0)
 
 es_premio = df_consolidado["Es Premio"].eq("SI")
 no_premio = df_consolidado["Es Premio"].eq("NO")
@@ -406,309 +451,364 @@ df_consolidado["Valor Retención"] = (base * df_consolidado["Tarifa Retención (
 df_consolidado.loc[base.isna(), "Valor Retención"] = np.nan
 
 print("--- RESUMEN ---")
-print(df_consolidado.groupby("Tarifa Retención (%)")
-      .agg(Filas=("Base Normalizada", "size"),
-           Base=("Base Normalizada", "sum"),
-           Retencion=("Valor Retención", "sum"))
+print(df_consolidado.groupby("Tarifa Retención (%)", observed=True)
+      .agg(Filas=("Base Normalizada","size"), Base=("Base Normalizada","sum"),
+           Retencion=("Valor Retención","sum"))
       .to_string(float_format=lambda x: f"{x:,.0f}"))
 
-#Bloque 8
+# Seguro contra caídas: si Colab se reinicia, recuperas con
+#   df_consolidado = pd.read_parquet(RUTA_CHECKPOINT)
+if CHECKPOINT:
+    RUTA_CHECKPOINT = os.path.join(CARPETA_TEMP, "consolidado_calculado.parquet")
+    df_consolidado.to_parquet(RUTA_CHECKPOINT, index=False, compression="snappy")
+    print(f"\n[CHECKPOINT] {RUTA_CHECKPOINT} "
+          f"({os.path.getsize(RUTA_CHECKPOINT)/1024**2:.1f} MB)")
+ram("post-cálculo")
 
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
+#9
 
-def dar_formato(ruta):
-    wb = openpyxl.load_workbook(ruta)
-    f_enc    = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
-    relleno  = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-    centro   = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    f_cuerpo = Font(name="Calibri", size=11)
+def escribir_excel(ruta, hojas, constant_memory=True):
+    """
+    Escribe y formatea en una sola pasada con xlsxwriter.
 
-    for hoja in wb.sheetnames:
-        ws = wb[hoja]
-        if ws.max_row < 1:
-            continue
-        enc = [c.value for c in ws[1]]
+    constant_memory=True hace que xlsxwriter descargue cada fila a disco
+    apenas la escribe, en vez de mantener todo el libro en RAM. El costo:
+    hay que escribir las filas en orden estricto (por eso el encabezado
+    va primero, a mano, y los datos después con startrow=1).
 
-        for col in ws.columns:
-            L = get_column_letter(col[0].column)
-            # el str() faltaba en la versión original: len() explotaba en
-            # celdas numéricas y el except vacío se lo tragaba
-            largo = max((len(str(c.value)) for c in col if c.value is not None), default=10)
-            ws.column_dimensions[L].width = min(max(largo + 2, 10), 40)
+    Reemplaza el openpyxl.load_workbook() anterior, que volvía a cargar
+    el Excel completo en memoria con un objeto Python por celda.
+    """
+    with pd.ExcelWriter(ruta, engine="xlsxwriter",
+                        engine_kwargs={"options": {
+                            "constant_memory": constant_memory,
+                            "strings_to_numbers": False,
+                            "default_date_format": "yyyy-mm-dd"}}) as writer:
 
-        for c in ws[1]:
-            c.font, c.fill, c.alignment = f_enc, relleno, centro
+        wb = writer.book
+        f_enc = wb.add_format({"bold": True, "font_color": "FFFFFF",
+                               "bg_color": "FF0000", "font_name": "Calibri",
+                               "font_size": 11, "align": "center",
+                               "valign": "vcenter", "text_wrap": True,
+                               "border": 1})
+        f_num  = wb.add_format({"num_format": "#,##0", "font_name": "Calibri",
+                                "font_size": 11, "align": "center", "valign": "vcenter"})
+        f_tar  = wb.add_format({"num_format": "0.0", "font_name": "Calibri",
+                                "font_size": 11, "align": "center", "valign": "vcenter"})
+        f_ent  = wb.add_format({"num_format": "0", "font_name": "Calibri",
+                                "font_size": 11, "align": "center", "valign": "vcenter"})
+        f_txt  = wb.add_format({"font_name": "Calibri", "font_size": 11,
+                                "align": "center", "valign": "vcenter"})
 
-        for fila in ws.iter_rows(min_row=2):
-            for c in fila:
-                c.alignment, c.font = centro, f_cuerpo
-                if isinstance(c.value, (int, float)):
-                    t = str(enc[c.column - 1]) if c.column - 1 < len(enc) else ""
-                    c.number_format = ("0.0" if "Tarifa" in t
-                                       else "0" if "Mes Num" in t else "#,##0")
-        ws.freeze_panes = "A2"
+        for nombre, df in hojas.items():
+            hoja = nombre[:31]
+            ws = wb.add_worksheet(hoja)
+            writer.sheets[hoja] = ws
 
-    wb.save(ruta)
-    print(f"Formateado: {os.path.basename(ruta)}")
+            if df is None or df.empty:
+                ws.write(0, 0, "Sin registros", f_enc)
+                print(f"  Hoja '{nombre}': 0 filas")
+                continue
 
-print("Función dar_formato() lista.")
+            # 1) Encabezado PRIMERO (obligatorio con constant_memory)
+            for j, col in enumerate(df.columns):
+                ws.write(0, j, str(col), f_enc)
 
-#Bloque 9
-# --- imports locales: funciona aunque se haya reiniciado el entorno ---
-import os, shutil, time
+            # 2) Ancho y formato por COLUMNA, no celda por celda.
+            #    Se muestrean 200 filas en vez de recorrer todo.
+            muestra = df.head(200)
+            for j, col in enumerate(df.columns):
+                titulo = str(col)
+                largo = max([len(titulo)] +
+                            [len(str(v)) for v in muestra[col].head(200) if v is not None])
+                ancho = min(max(largo + 2, 10), 40)
+                if "Tarifa" in titulo:
+                    fmt = f_tar
+                elif "Mes Num" in titulo:
+                    fmt = f_ent
+                elif pd.api.types.is_numeric_dtype(df[col]):
+                    fmt = f_num
+                else:
+                    fmt = f_txt
+                ws.set_column(j, j, ancho, fmt)
+
+            ws.freeze_panes(1, 0)
+            ws.autofilter(0, 0, len(df), len(df.columns) - 1)
+
+            # 3) Datos, sin encabezado, desde la fila 2
+            df.to_excel(writer, sheet_name=hoja, index=False,
+                        header=False, startrow=1)
+            print(f"  Hoja '{nombre}': {len(df):,} filas")
+            gc.collect()
+
+    return ruta
+
+print("Función escribir_excel() lista.")
+
+#10
+
+import os, shutil, time, gc
 import pandas as pd, numpy as np
 from datetime import datetime, timedelta
 
-requeridas = ["df_consolidado", "CARPETA_SALIDA", "ANIO_GRAVABLE",
-              "MESES_NOMBRE", "TARIFA_PREMIOS", "TARIFA_OTROS"]
-faltantes = [v for v in requeridas if v not in globals()]
-if faltantes:
-    raise NameError(f"Faltan variables: {faltantes}\n"
-                    f"Se reinició el entorno. Corre los BLOQUES 1 a 7 en orden.")
+req = ["df_consolidado","CARPETA_SALIDA","ANIO_GRAVABLE","MESES_NOMBRE",
+       "TARIFA_PREMIOS","TARIFA_OTROS","escribir_excel"]
+falt = [v for v in req if v not in globals()]
+if falt:
+    raise NameError(f"Faltan: {falt}\nSe reinició el entorno. Corre los BLOQUES 0 a 8.\n"
+                    f"Si existe el checkpoint, puedes recuperar con:\n"
+                    f"  df_consolidado = pd.read_parquet(RUTA_CHECKPOINT)")
 
 os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
 base      = df_consolidado["Base Normalizada"]
 es_premio = df_consolidado["Es Premio"].eq("SI")
 no_premio = df_consolidado["Es Premio"].eq("NO")
+tarifa    = df_consolidado["Tarifa Retención (%)"]
 
 validos = df_consolidado["Mes Num"].dropna()
 if len(validos):
-    mes_num = int(validos.mode().iloc[0])          # el punto que faltaba
+    mes_num = int(validos.mode().iloc[0])
     if validos.nunique() > 1:
-        print(f"[AVISO] Hay {validos.nunique()} meses en la entrada. "
+        print(f"[AVISO] {validos.nunique()} meses distintos. "
               f"Se nombra con el predominante: {MESES_NOMBRE[mes_num]}")
 else:
     ant = datetime.now().replace(day=1) - timedelta(days=1)
     mes_num = ant.month
     print("[AVISO] Ningún mes reconocido. Se usa el mes anterior calendario.")
 
-nombre_mes  = MESES_NOMBRE[mes_num]
+nombre_mes   = MESES_NOMBRE[mes_num]
 ETIQUETA_MES = f"{mes_num:02d}_{nombre_mes.lower()}"
-ruta_salida = os.path.join(
-    CARPETA_SALIDA, f"Consolidado_con_Retencion-{ETIQUETA_MES}_{ANIO_GRAVABLE}.xlsx")
+ruta_salida  = os.path.join(CARPETA_SALIDA,
+    f"Consolidado_con_Retencion-{ETIQUETA_MES}_{ANIO_GRAVABLE}.xlsx")
 
-sin_clasificar = (base.isna()
-                  | ~df_consolidado["Es Premio"].isin(["SI", "NO"])
+sin_clasificar = (base.isna() | ~df_consolidado["Es Premio"].isin(["SI","NO"])
                   | df_consolidado["Mes Num"].isna())
 
+# .loc devuelve vistas mientras no se modifiquen: no se duplica el DataFrame
 hojas = {
     "Consolidado General":            df_consolidado,
-    "Premios20%":                     df_consolidado[df_consolidado["Tarifa Retención (%)"] == TARIFA_PREMIOS],
-    "Otros ingresos tributarios3.5%": df_consolidado[df_consolidado["Tarifa Retención (%)"] == TARIFA_OTROS],
-    "Premios Sin Retencion":          df_consolidado[es_premio & df_consolidado["Tarifa Retención (%)"].eq(0) & base.notna()],
-    "Otros Ingresos Sin retencion":   df_consolidado[no_premio & df_consolidado["Tarifa Retención (%)"].eq(0) & base.notna()],
-    "REVISAR":                        df_consolidado[sin_clasificar],
+    "Premios20%":                     df_consolidado.loc[tarifa == TARIFA_PREMIOS],
+    "Otros ingresos tributarios3.5%": df_consolidado.loc[tarifa == TARIFA_OTROS],
+    "Premios Sin Retencion":          df_consolidado.loc[es_premio & tarifa.eq(0) & base.notna()],
+    "Otros Ingresos Sin retencion":   df_consolidado.loc[no_premio & tarifa.eq(0) & base.notna()],
+    "REVISAR":                        df_consolidado.loc[sin_clasificar],
 }
 
-# --- respaldo si ya existía ---
 if os.path.exists(ruta_salida):
-    hist = os.path.join(CARPETA_SALIDA, "Historico")
-    os.makedirs(hist, exist_ok=True)
+    hist = os.path.join(CARPETA_SALIDA, "Historico"); os.makedirs(hist, exist_ok=True)
     b, e = os.path.splitext(os.path.basename(ruta_salida))
     shutil.copy2(ruta_salida, os.path.join(hist, f"{b}__{datetime.now():%Y%m%d_%H%M%S}{e}"))
-    print("[BACKUP] Versión anterior copiada a Historico/\n")
+    print("[BACKUP] Versión anterior -> Historico/\n")
 
-with pd.ExcelWriter(ruta_salida, engine="xlsxwriter") as w:
-    for hoja, data in hojas.items():
-        data.to_excel(w, sheet_name=hoja[:31], index=False)
-        print(f"  Hoja '{hoja}': {len(data)} filas")
+# Se escribe primero en disco local (rápido y sin latencia de Drive)
+# y solo al final se copia a Drive.
+ruta_local = os.path.join(CARPETA_TEMP, os.path.basename(ruta_salida))
+escribir_excel(ruta_local, hojas)
+liberar(hojas); del hojas; gc.collect()
 
-if "dar_formato" in globals():
-    dar_formato(ruta_salida)
-else:
-    print("[AVISO] 'dar_formato' no está definida. Corre el BLOQUE 8 y repite.")
+shutil.copy2(ruta_local, ruta_salida)
+os.remove(ruta_local)
 
-# --- confirmar escritura en Drive (tiene retardo de sincronización) ---
 EXPORTACION_OK = False
 for _ in range(15):
     if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 0:
         EXPORTACION_OK = True
-        print(f"\n[OK] Guardado: {ruta_salida}")
-        print(f"     {os.path.getsize(ruta_salida):,} bytes")
+        print(f"\n[OK] {ruta_salida}")
+        print(f"     {os.path.getsize(ruta_salida)/1024**2:.2f} MB")
         break
     time.sleep(1)
-
 if not EXPORTACION_OK:
-    print(f"\n[X] NO se confirmó la escritura. NO muevas los archivos todavía.")
+    print("\n[X] NO se confirmó la escritura. NO muevas los archivos todavía.")
+ram("post-exportación")
 
-#Bloque 10
+#11
 if not globals().get("EXPORTACION_OK", False):
-    raise RuntimeError("La exportación no se confirmó. Revisa el BLOQUE 9 "
-                       "antes de mover nada.")
+    raise RuntimeError("La exportación no se confirmó. Revisa el BLOQUE 9.")
+
+destino = os.path.join(CARPETA_PROCESADOS, str(ANIO_GRAVABLE), ETIQUETA_MES)
 
 if not MOVER_PROCESADOS:
     print("MOVER_PROCESADOS = False  ->  no se movió nada.\n")
-    print(f"Archivos listos para mover ({len(ARCHIVOS_OK)}):")
+    print(f"Se moverían ({len(ARCHIVOS_OK)}):")
     for r in ARCHIVOS_OK:
         print(f"    {os.path.basename(r)}")
-    print(f"\nDestino: {os.path.join(CARPETA_PROCESADOS, str(ANIO_GRAVABLE), ETIQUETA_MES)}")
-    print("\nCambia MOVER_PROCESADOS = True en el BLOQUE 2 y vuelve a correr este bloque.")
-
+    print(f"\nDestino: {destino}")
+    print("\nCambia MOVER_PROCESADOS = True en el BLOQUE 2 y repite este bloque.")
 else:
-    destino = os.path.join(CARPETA_PROCESADOS, str(ANIO_GRAVABLE), ETIQUETA_MES)
     os.makedirs(destino, exist_ok=True)
-
     movidos, errores = [], []
     for origen in ARCHIVOS_OK:
         nombre = os.path.basename(origen)
-
         if not os.path.exists(origen):
-            print(f"  [SKIP] {nombre}: ya no está en Entrada.")
-            continue
-
-        ruta_destino = os.path.join(destino, nombre)
-        # Si ya existe uno con el mismo nombre, no lo pisamos
-        if os.path.exists(ruta_destino):
+            print(f"  [SKIP] {nombre}: ya no está en Entrada."); continue
+        rd = os.path.join(destino, nombre)
+        if os.path.exists(rd):
             b, e = os.path.splitext(nombre)
-            ruta_destino = os.path.join(destino, f"{b}__{datetime.now():%Y%m%d_%H%M%S}{e}")
-            print(f"  [DUP] Ya existía {nombre} -> se guarda como "
-                  f"{os.path.basename(ruta_destino)}")
-
+            rd = os.path.join(destino, f"{b}__{datetime.now():%Y%m%d_%H%M%S}{e}")
+            print(f"  [DUP] {nombre} -> {os.path.basename(rd)}")
         try:
             # copy2 + remove en vez de move: en Drive montado, move puede
-            # fallar a mitad y dejar el archivo perdido. Así, si la copia
-            # falla, el original sigue intacto en Entrada.
-            shutil.copy2(origen, ruta_destino)
-            if os.path.exists(ruta_destino) and os.path.getsize(ruta_destino) > 0:
-                os.remove(origen)
-                movidos.append(nombre)
-                print(f"  OK  {nombre}")
+            # fallar a mitad y dejar el archivo perdido.
+            shutil.copy2(origen, rd)
+            if os.path.exists(rd) and os.path.getsize(rd) > 0:
+                os.remove(origen); movidos.append(nombre); print(f"  OK  {nombre}")
             else:
-                errores.append((nombre, "la copia quedó vacía"))
-                print(f"  [X] {nombre}: la copia quedó vacía, NO se borró el original.")
+                errores.append((nombre, "copia vacía"))
+                print(f"  [X] {nombre}: copia vacía, NO se borró el original.")
         except Exception as ex:
-            errores.append((nombre, str(ex)))
-            print(f"  [X] {nombre}: {ex}")
+            errores.append((nombre, str(ex))); print(f"  [X] {nombre}: {ex}")
 
-    # --- bitácora ---
     log = os.path.join(CARPETA_PROCESADOS, "bitacora_procesamiento.csv")
-    registro = pd.DataFrame({
-        "Fecha_Proceso":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Anio":            ANIO_GRAVABLE,
-        "Mes":             nombre_mes,
-        "Archivo":         movidos,
-        "Carpeta_Destino": destino,
-        "Consolidado":     os.path.basename(ruta_salida),
-    })
-    if os.path.exists(log):
-        registro.to_csv(log, mode="a", header=False, index=False, encoding="utf-8-sig")
-    else:
-        registro.to_csv(log, index=False, encoding="utf-8-sig")
+    if movidos:
+        reg = pd.DataFrame({"Fecha_Proceso": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "Anio": ANIO_GRAVABLE, "Mes": nombre_mes,
+                            "Archivo": movidos, "Carpeta_Destino": destino,
+                            "Consolidado": os.path.basename(ruta_salida)})
+        reg.to_csv(log, mode="a" if os.path.exists(log) else "w",
+                   header=not os.path.exists(log), index=False, encoding="utf-8-sig")
 
-    print(f"\n{'=' * 60}")
-    print(f"Movidos: {len(movidos)}   |   Con error: {len(errores)}")
-    print(f"Destino: {destino}")
-    print(f"Bitácora: {log}")
-    if ARCHIVOS_FALLA:
-        print(f"\nSiguen en Entrada para revisión ({len(ARCHIVOS_FALLA)}):")
-        for r, motivo in ARCHIVOS_FALLA:
-            print(f"    {os.path.basename(r)}  ->  {motivo}")
+    print(f"\n{'='*60}\nMovidos: {len(movidos)}  |  Con error: {len(errores)}")
+    print(f"Destino: {destino}\nBitácora: {log}")
+    for r, m in ARCHIVOS_FALLA:
+        print(f"  (sigue en Entrada) {os.path.basename(r)}  ->  {m}")
     print("=" * 60)
 
-#Bloque 11
+#12
+# Libera el consolidado mensual antes de empezar: ya está en disco.
+for v in ["df_consolidado", "base", "es_premio", "no_premio", "tarifa"]:
+    if v in globals():
+        del globals()[v]
+gc.collect()
+ram("antes del anual")
+
 patron = os.path.join(CARPETA_SALIDA, "Consolidado_con_Retencion-*.xlsx")
 archivos_mes = [a for a in sorted(glob.glob(patron))
                 if "ANUAL" not in os.path.basename(a).upper()
                 and not os.path.basename(a).startswith("~$")]
-
 if not archivos_mes:
     raise FileNotFoundError(f"No hay consolidados mensuales en {CARPETA_SALIDA}")
 
-print(f"Consolidados encontrados: {len(archivos_mes)}\n")
+print(f"Consolidados: {len(archivos_mes)}\n")
 
-partes = []
+# --- PASADA 1: resúmenes, un mes a la vez ---
+# Solo se leen las columnas necesarias y se descarta cada mes al terminar.
+COLS_RESUMEN = ["Mes Num", "Mes", "Base Normalizada",
+                "Valor Retención", "Tarifa Retención (%)"]
+resumenes, rutas_parquet = [], []
+
 for a in archivos_mes:
+    nom = os.path.basename(a)
     try:
-        d = pd.read_excel(a, sheet_name="Consolidado General")
-        partes.append(d)
-        print(f"  OK  {os.path.basename(a)}  ->  {len(d)} filas")
+        d = pd.read_excel(a, sheet_name="Consolidado General", usecols=COLS_RESUMEN)
+        r = (d.groupby(["Mes Num","Mes","Tarifa Retención (%)"], dropna=False, observed=True)
+             .agg(Registros=("Base Normalizada","size"),
+                  Base_Total=("Base Normalizada","sum"),
+                  Retencion_Total=("Valor Retención","sum")).reset_index())
+        resumenes.append(r)
+        print(f"  OK  {nom}  ->  {len(d):,} filas")
+        del d, r; gc.collect()
     except Exception as e:
-        print(f"  [ERROR] {os.path.basename(a)}: {e}")
+        print(f"  [ERROR] {nom}: {e}")
 
-df_anual = pd.concat(partes, ignore_index=True)
+agg = pd.concat(resumenes, ignore_index=True)
+del resumenes; gc.collect()
 
-antes = len(df_anual)
-df_anual = df_anual.drop_duplicates()
-if antes != len(df_anual):
-    print(f"\n[AVISO] Se eliminaron {antes - len(df_anual)} filas duplicadas.")
-
-df_anual = df_anual.sort_values("Mes Num", na_position="last").reset_index(drop=True)
-print(f"\nTotal anual: {len(df_anual)} filas")
-
-presentes = set(df_anual["Mes Num"].dropna().astype(int))
-faltantes = [MESES_NOMBRE[m] for m in range(1, 13) if m not in presentes]
-if faltantes:
-    print(f"[AVISO] Meses sin datos: {faltantes}")
-
-resumen_mes = (df_anual.groupby(["Mes Num", "Mes"], dropna=False)
-               .agg(Registros=("Base Normalizada", "size"),
-                    Base_Total=("Base Normalizada", "sum"),
-                    Retencion_Total=("Valor Retención", "sum"))
+resumen_mes = (agg.groupby(["Mes Num","Mes"], dropna=False, observed=True)
+               .agg(Registros=("Registros","sum"), Base_Total=("Base_Total","sum"),
+                    Retencion_Total=("Retencion_Total","sum"))
                .reset_index().sort_values("Mes Num"))
 
-resumen_mes_tarifa = (df_anual.pivot_table(
-    index=["Mes Num", "Mes"], columns="Tarifa Retención (%)",
-    values=["Base Normalizada", "Valor Retención"],
-    aggfunc="sum", fill_value=0).reset_index())
+resumen_tarifa = (agg.groupby("Tarifa Retención (%)", observed=True)
+                  .agg(Registros=("Registros","sum"), Base_Total=("Base_Total","sum"),
+                       Retencion_Total=("Retencion_Total","sum")).reset_index())
+
+resumen_mes_tarifa = (agg.pivot_table(index=["Mes Num","Mes"],
+                                      columns="Tarifa Retención (%)",
+                                      values=["Base_Total","Retencion_Total"],
+                                      aggfunc="sum", fill_value=0, observed=True)
+                      .reset_index())
 resumen_mes_tarifa.columns = [" ".join(str(x) for x in c if str(x) != "").strip()
                               for c in resumen_mes_tarifa.columns.to_flat_index()]
-
-resumen_tarifa = (df_anual.groupby("Tarifa Retención (%)")
-                  .agg(Registros=("Base Normalizada", "size"),
-                       Base_Total=("Base Normalizada", "sum"),
-                       Retencion_Total=("Valor Retención", "sum")).reset_index())
 
 print("\n--- ANUAL POR MES ---")
 print(resumen_mes.to_string(index=False, float_format=lambda x: f"{x:,.0f}"))
 print("\n--- ANUAL POR TARIFA ---")
 print(resumen_tarifa.to_string(index=False, float_format=lambda x: f"{x:,.0f}"))
 
-ruta_anual = os.path.join(CARPETA_SALIDA, f"CONSOLIDADO_ANUAL_{ANIO_GRAVABLE}.xlsx")
+presentes = set(resumen_mes["Mes Num"].dropna().astype(int))
+falt = [MESES_NOMBRE[m] for m in range(1,13) if m not in presentes]
+if falt:
+    print(f"\n[AVISO] Meses sin datos: {falt}")
 
-hojas_anual = {
+# --- PASADA 2: detalle a parquet, mes por mes ---
+for a in archivos_mes:
+    try:
+        d = pd.read_excel(a, sheet_name="Consolidado General")
+        d = optimizar_memoria(d)
+        p = os.path.join(CARPETA_TEMP, os.path.basename(a).replace(".xlsx",".parquet"))
+        d.to_parquet(p, index=False); rutas_parquet.append(p)
+        del d; gc.collect()
+    except Exception as e:
+        print(f"  [ERROR detalle] {os.path.basename(a)}: {e}")
+
+ram("post-parquet")
+
+df_anual = pd.concat([pd.read_parquet(p) for p in rutas_parquet], ignore_index=True)
+antes = len(df_anual)
+df_anual = df_anual.drop_duplicates()
+if antes != len(df_anual):
+    print(f"[AVISO] {antes - len(df_anual):,} filas duplicadas eliminadas.")
+df_anual = optimizar_memoria(df_anual.sort_values("Mes Num", na_position="last")
+                             .reset_index(drop=True), verbose=True)
+print(f"Total anual: {len(df_anual):,} filas")
+ram("df_anual listo")
+
+t = df_anual["Tarifa Retención (%)"]
+ruta_anual = os.path.join(CARPETA_SALIDA, f"CONSOLIDADO_ANUAL_{ANIO_GRAVABLE}.xlsx")
+ruta_local = os.path.join(CARPETA_TEMP, os.path.basename(ruta_anual))
+
+escribir_excel(ruta_local, {
     "Resumen por Mes":                resumen_mes,
     "Resumen Mes x Tarifa":           resumen_mes_tarifa,
     "Resumen por Tarifa":             resumen_tarifa,
     "Consolidado Anual":              df_anual,
-    "Premios20%":                     df_anual[df_anual["Tarifa Retención (%)"] == TARIFA_PREMIOS],
-    "Otros ingresos tributarios3.5%": df_anual[df_anual["Tarifa Retención (%)"] == TARIFA_OTROS],
-    "REVISAR":                        df_anual[df_anual["Base Normalizada"].isna()
-                                               | ~df_anual["Es Premio"].isin(["SI", "NO"])
-                                               | df_anual["Mes Num"].isna()],
-}
+    "Premios20%":                     df_anual.loc[t == TARIFA_PREMIOS],
+    "Otros ingresos tributarios3.5%": df_anual.loc[t == TARIFA_OTROS],
+    "REVISAR":                        df_anual.loc[df_anual["Base Normalizada"].isna()
+                                                   | ~df_anual["Es Premio"].isin(["SI","NO"])
+                                                   | df_anual["Mes Num"].isna()],
+})
 
-with pd.ExcelWriter(ruta_anual, engine="xlsxwriter") as w:
-    for hoja, data in hojas_anual.items():
-        data.to_excel(w, sheet_name=hoja[:31], index=False)
-        print(f"  Hoja '{hoja}': {len(data)} filas")
+shutil.copy2(ruta_local, ruta_anual); os.remove(ruta_local)
+for p in rutas_parquet:
+    try: os.remove(p)
+    except Exception: pass
 
-dar_formato(ruta_anual)
-print(f"\nGuardado: {ruta_anual}")
+print(f"\n[OK] {ruta_anual}  ({os.path.getsize(ruta_anual)/1024**2:.2f} MB)")
+ram("fin")
 
-#Bloque 12
-def inventario(carpeta, titulo, nivel=0):
+#13
+def inventario(carpeta, nivel=0):
     if not os.path.isdir(carpeta):
-        print(f"  (no existe: {carpeta})")
-        return
+        print(f"  (no existe: {carpeta})"); return
     for f in sorted(os.listdir(carpeta)):
-        ruta = os.path.join(carpeta, f)
-        sangria = "  " * (nivel + 1)
-        if os.path.isdir(ruta):
-            print(f"{sangria}[{f}]")
-            inventario(ruta, titulo, nivel + 1)
+        r = os.path.join(carpeta, f); s = "  " * (nivel + 1)
+        if os.path.isdir(r):
+            print(f"{s}[{f}]"); inventario(r, nivel + 1)
         else:
-            mod = datetime.fromtimestamp(os.path.getmtime(ruta))
-            print(f"{sangria}{f}  ({os.path.getsize(ruta):,} bytes, {mod:%Y-%m-%d %H:%M})")
+            mod = datetime.fromtimestamp(os.path.getmtime(r))
+            print(f"{s}{f}  ({os.path.getsize(r)/1024**2:.2f} MB, {mod:%Y-%m-%d %H:%M})")
 
-for carpeta, titulo in [(CARPETA_ENTRADA, "ENTRADA"),
-                        (CARPETA_SALIDA, "SALIDA"),
-                        (CARPETA_PROCESADOS, "PROCESADOS")]:
-    print("=" * 70)
-    print(titulo)
-    print("=" * 70)
-    inventario(carpeta, titulo)
-    print()
-    
+for c, t in [(CARPETA_ENTRADA,"ENTRADA"), (CARPETA_SALIDA,"SALIDA"),
+             (CARPETA_PROCESADOS,"PROCESADOS")]:
+    print("=" * 70); print(t); print("=" * 70)
+    inventario(c); print()
+
+# Limpiar temporales locales (NO toca Drive)
+n = 0
+for f in os.listdir(CARPETA_TEMP):
+    try: os.remove(os.path.join(CARPETA_TEMP, f)); n += 1
+    except Exception: pass
+print(f"Temporales locales eliminados: {n}")
+ram("final")
