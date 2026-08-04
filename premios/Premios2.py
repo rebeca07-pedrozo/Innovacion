@@ -1,4 +1,4 @@
-#  1
+#1 - Monitoreo de memoria
 !pip install xlsxwriter psutil -q
 
 import psutil, gc, os
@@ -26,8 +26,7 @@ def liberar(*objetos):
 
 ram("inicio")
 
-#2
-
+#2 - Imports 
 import pandas as pd
 import numpy as np
 import glob, os, re, shutil, time, gc, unicodedata
@@ -40,8 +39,7 @@ pd.set_option("mode.copy_on_write", True)   # evita copias intermedias
 print("Librerías cargadas.")
 ram("post-imports")
 
-
-#3
+#3 -  Rutas y parametros
 CARPETA_BASE       = "/content/drive/My Drive/Optimizacion-Premios/2026/"
 CARPETA_ENTRADA    = os.path.join(CARPETA_BASE, "Entrada")
 CARPETA_SALIDA     = os.path.join(CARPETA_BASE, "Salida")
@@ -50,10 +48,9 @@ CARPETA_TEMP       = "/content/temp_premios"      # disco local, NO Drive
 
 ANIO_GRAVABLE = 2026
 
-# === Memoria ===
-MODO_BAJO_CONSUMO = True    # lectura por streaming + checkpoints en disco
-UMBRAL_RAM_GB     = 1.5     # si baja de esto, vuelca a disco y libera
-CHECKPOINT        = True    # guarda avance en parquet por si se cae la sesión
+MODO_BAJO_CONSUMO = True    
+UMBRAL_RAM_GB     = 1.5     
+CHECKPOINT        = True   
 
 MOVER_PROCESADOS = False
 FILA_ENCABEZADO  = None
@@ -69,8 +66,7 @@ for c in (CARPETA_ENTRADA, CARPETA_SALIDA, CARPETA_PROCESADOS, CARPETA_TEMP):
 print(f"Modo bajo consumo: {MODO_BAJO_CONSUMO}   |   Checkpoints: {CHECKPOINT}")
 print(f"Temp local: {CARPETA_TEMP}  (más rápido que Drive)")
 
-#4
-
+#4 - Normalización + optimización de tipos
 def sin_tildes(t):
     return "".join(c for c in unicodedata.normalize("NFD", str(t))
                    if unicodedata.category(c) != "Mn")
@@ -184,7 +180,6 @@ def buscar_columna(cols, exactos=(), contiene=(), excluir=()):
     return None
 
 
-# ============================================================ MEMORIA
 def optimizar_memoria(df, verbose=False):
     """
     Reduce el consumo del DataFrame:
@@ -199,7 +194,7 @@ def optimizar_memoria(df, verbose=False):
         s = df[col]
         if s.dtype == "object":
             n = len(s)
-            if n and s.nunique(dropna=False) / n < 0.5:   # muy repetitivo
+            if n and s.nunique(dropna=False) / n < 0.5:   
                 df[col] = s.astype("category")
         elif pd.api.types.is_integer_dtype(s):
             df[col] = pd.to_numeric(s, downcast="integer")
@@ -233,7 +228,7 @@ def leer_encabezado(archivo, max_filas=25):
 print("Funciones listas.")
 ram("post-funciones")
 
-#5
+#5 - Lectura eficiente
 EXTENSIONES = (".xlsx", ".xlsm", ".xls")
 
 archivos, ignorados = [], []
@@ -345,7 +340,7 @@ for r, m in ARCHIVOS_FALLA:
     print(f"    (se queda en Entrada) {os.path.basename(r)}  ->  {m}")
 ram("post-consolidación")
 
-#6
+#6 - Mapa de columnas
 cols = [c for c in df_consolidado.columns if c != "Archivo Origen"]
 
 print("=" * 100)
@@ -381,12 +376,9 @@ for et, idx, par in [("VALOR / BASE", idx_valor, "COL_VALOR"),
 if faltan:
     raise ValueError(f"Define en el BLOQUE 2 y vuelve a correr: {faltan}")
 
-#7
+#7 - Normalización de columnas
 col_valor, col_premio, col_mes = cols[idx_valor], cols[idx_premio], cols[idx_mes]
 
-# .map() sobre una categoría solo evalúa los valores ÚNICOS, no fila por fila.
-# En 300.000 filas con 40 valores distintos de mes, son 40 llamadas en vez
-# de 300.000. Por eso convertimos primero.
 def mapear_eficiente(serie, funcion):
     unicos = pd.Series(serie.dropna().unique())
     tabla = dict(zip(unicos, unicos.map(funcion)))
@@ -437,7 +429,7 @@ print(df_consolidado["Mes"].value_counts().to_string())
 print(f"\nSuma de bases: {df_consolidado['Base Normalizada'].sum():,.0f}")
 ram("post-normalización")
 
-#8
+#8 - Exportación mensual
 df_consolidado["Tarifa Retención (%)"] = np.float32(0.0)
 
 es_premio = df_consolidado["Es Premio"].eq("SI")
@@ -456,8 +448,7 @@ print(df_consolidado.groupby("Tarifa Retención (%)", observed=True)
            Retencion=("Valor Retención","sum"))
       .to_string(float_format=lambda x: f"{x:,.0f}"))
 
-# Seguro contra caídas: si Colab se reinicia, recuperas con
-#   df_consolidado = pd.read_parquet(RUTA_CHECKPOINT)
+
 if CHECKPOINT:
     RUTA_CHECKPOINT = os.path.join(CARPETA_TEMP, "consolidado_calculado.parquet")
     df_consolidado.to_parquet(RUTA_CHECKPOINT, index=False, compression="snappy")
@@ -465,20 +456,9 @@ if CHECKPOINT:
           f"({os.path.getsize(RUTA_CHECKPOINT)/1024**2:.1f} MB)")
 ram("post-cálculo")
 
-#9
-
+#9 - Mover a Procesados
 def escribir_excel(ruta, hojas, constant_memory=True):
-    """
-    Escribe y formatea en una sola pasada con xlsxwriter.
-
-    constant_memory=True hace que xlsxwriter descargue cada fila a disco
-    apenas la escribe, en vez de mantener todo el libro en RAM. El costo:
-    hay que escribir las filas en orden estricto (por eso el encabezado
-    va primero, a mano, y los datos después con startrow=1).
-
-    Reemplaza el openpyxl.load_workbook() anterior, que volvía a cargar
-    el Excel completo en memoria con un objeto Python por celda.
-    """
+    
     with pd.ExcelWriter(ruta, engine="xlsxwriter",
                         engine_kwargs={"options": {
                             "constant_memory": constant_memory,
@@ -509,13 +489,8 @@ def escribir_excel(ruta, hojas, constant_memory=True):
                 ws.write(0, 0, "Sin registros", f_enc)
                 print(f"  Hoja '{nombre}': 0 filas")
                 continue
-
-            # 1) Encabezado PRIMERO (obligatorio con constant_memory)
             for j, col in enumerate(df.columns):
                 ws.write(0, j, str(col), f_enc)
-
-            # 2) Ancho y formato por COLUMNA, no celda por celda.
-            #    Se muestrean 200 filas en vez de recorrer todo.
             muestra = df.head(200)
             for j, col in enumerate(df.columns):
                 titulo = str(col)
@@ -534,8 +509,6 @@ def escribir_excel(ruta, hojas, constant_memory=True):
 
             ws.freeze_panes(1, 0)
             ws.autofilter(0, 0, len(df), len(df.columns) - 1)
-
-            # 3) Datos, sin encabezado, desde la fila 2
             df.to_excel(writer, sheet_name=hoja, index=False,
                         header=False, startrow=1)
             print(f"  Hoja '{nombre}': {len(df):,} filas")
@@ -545,8 +518,8 @@ def escribir_excel(ruta, hojas, constant_memory=True):
 
 print("Función escribir_excel() lista.")
 
-#10
 
+#10 - Reporte anual 
 import os, shutil, time, gc
 import pandas as pd, numpy as np
 from datetime import datetime, timedelta
@@ -585,7 +558,6 @@ ruta_salida  = os.path.join(CARPETA_SALIDA,
 sin_clasificar = (base.isna() | ~df_consolidado["Es Premio"].isin(["SI","NO"])
                   | df_consolidado["Mes Num"].isna())
 
-# .loc devuelve vistas mientras no se modifiquen: no se duplica el DataFrame
 hojas = {
     "Consolidado General":            df_consolidado,
     "Premios20%":                     df_consolidado.loc[tarifa == TARIFA_PREMIOS],
@@ -601,8 +573,6 @@ if os.path.exists(ruta_salida):
     shutil.copy2(ruta_salida, os.path.join(hist, f"{b}__{datetime.now():%Y%m%d_%H%M%S}{e}"))
     print("[BACKUP] Versión anterior -> Historico/\n")
 
-# Se escribe primero en disco local (rápido y sin latencia de Drive)
-# y solo al final se copia a Drive.
 ruta_local = os.path.join(CARPETA_TEMP, os.path.basename(ruta_salida))
 escribir_excel(ruta_local, hojas)
 liberar(hojas); del hojas; gc.collect()
@@ -622,7 +592,7 @@ if not EXPORTACION_OK:
     print("\n[X] NO se confirmó la escritura. NO muevas los archivos todavía.")
 ram("post-exportación")
 
-#11
+#11 -  Inventario y limpieza
 if not globals().get("EXPORTACION_OK", False):
     raise RuntimeError("La exportación no se confirmó. Revisa el BLOQUE 9.")
 
@@ -674,8 +644,8 @@ else:
         print(f"  (sigue en Entrada) {os.path.basename(r)}  ->  {m}")
     print("=" * 60)
 
-#12
-# Libera el consolidado mensual antes de empezar: ya está en disco.
+    #12
+    # Libera el consolidado mensual antes de empezar: ya está en disco.
 for v in ["df_consolidado", "base", "es_premio", "no_premio", "tarifa"]:
     if v in globals():
         del globals()[v]
@@ -812,3 +782,5 @@ for f in os.listdir(CARPETA_TEMP):
     except Exception: pass
 print(f"Temporales locales eliminados: {n}")
 ram("final")
+
+
