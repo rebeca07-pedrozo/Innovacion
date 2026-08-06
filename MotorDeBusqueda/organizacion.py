@@ -44,6 +44,7 @@ for ruta in archivos:
         print(f'Error en {nombre_archivo}: {e}')
 
 df_texto = pd.DataFrame(textos)
+df_texto = df_texto.drop_duplicates(subset=['nombre_archivo', 'pagina'], keep='first')
 print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
 
 
