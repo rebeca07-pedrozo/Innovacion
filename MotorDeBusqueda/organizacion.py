@@ -41,9 +41,9 @@ for ruta in archivos:
                     'texto': pagina.extract_text() or ''
                 })
     except Exception as e:
+        print(f'Error en {nombre_archivo}: {e}')
 
 df_texto = pd.DataFrame(textos)
-print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
 print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
 
 
