@@ -216,10 +216,6 @@ se segun ser si sin sobre son su sus tal tambien tanto te tiene tienen toda toda
 una unas uno unos y ya""".split())
 
 def raiz(p):
-    if len(p) > 5:
-        for suf in ('ciones', 'idades'):
-            if p.endswith(suf):
-                return p[:-len(suf)] + suf[0]
     if len(p) > 4 and p.endswith('es'):
         return p[:-2]
     if len(p) > 3 and p.endswith('s'):
@@ -328,3 +324,5 @@ print(f'Listo: {len(frag)} fragmentos, {len(idx)-1} términos')
 
 
 #has not this changed
+
+print(df_chunks[df_chunks.file_id.isna()].nombre_archivo.unique())
