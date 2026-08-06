@@ -46,13 +46,13 @@ print(f'Erro en {nombre_archivo}: e')
 print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
 
 
-#6 - Páginas sin texto
+#5 - Páginas sin texto
 vacias = df_texto[df_texto.texto.str.strip() == '']
 print(f'Páginas sin texto: {len(vacias)} de {len(df_texto)}')
 print(df_texto.iloc[0].texto[:2000])
 
 
-#7 - Resumen por archivo
+#6 - Resumen por archivo
 df_resumen = df_texto.groupby('nombre_archivo').agg(
     total_paginas=('pagina', 'max'),
     caracteres=('texto', lambda s: s.str.len().sum()),
@@ -65,7 +65,7 @@ with pd.ExcelWriter(SALIDA) as w:
 print('Guardado en', SALIDA)
 
 
-#8 - funciones de normalización y metadatos
+#7 - funciones de normalización y metadatos
 MESES = 'enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre'
 RE_FECHA = rf'(\d{{1,2}}\s+de\s+(?:{MESES})\s+de\s+\d{{4}}|(?:{MESES})\s+de\s+\d{{4}})'
 RE_RAD_ARCHIVO = r'(\d{4}[A-Z]{2}\d{4,}[A-Z]?\d*)'
@@ -116,7 +116,7 @@ def metadatos(cab, archivo):
     }
 
 
-#9 - reflujo de líneas y fragmentación
+#8 - reflujo de líneas y fragmentación
 def reflow(texto):
     parrafos, buf = [], ''
     for l in (x.strip() for x in texto.split('\n')):
@@ -158,7 +158,7 @@ def trocear(parrafos, objetivo=800, solape=150, minimo=250):
     return fusionados
 
 
-#10 - obtener el file_id de Drive
+#9 - obtener el file_id de Drive
 auth.authenticate_user()
 drive = build('drive', 'v3')
 
@@ -177,7 +177,7 @@ for a, i in ids.items():
     print(('OK  ' if i else 'FALTA'), a, '->', i)
 
 
-#11 - Construir la tabla y guardarla
+#10 - Construir la tabla y guardarla
 filas = []
 for archivo, g in df_texto.groupby('nombre_archivo', sort=False):
     g = g.sort_values('pagina')
