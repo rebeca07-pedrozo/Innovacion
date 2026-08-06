@@ -289,6 +289,21 @@ except gspread.SpreadsheetNotFound:
 
 print('URL:', sh.url)
 print('SHEET_ID:', sh.id) 
+padres = drive.files().get(
+    fileId=sh.id, fields='parents', supportsAllDrives=True
+).execute().get('parents', [])
+
+if FOLDER_ID not in padres:
+    drive.files().update(
+        fileId=sh.id,
+        addParents=FOLDER_ID,
+        removeParents=','.join(padres),
+        fields='id, parents',
+        supportsAllDrives=True
+    ).execute()
+    print('Movido a la carpeta')
+else:
+    print('Ya estaba en la carpeta')
 
 cols = ['chunk_id','nombre_archivo','file_id','pagina','radicado','fecha',
         'anio','entidad','tema','subtema','texto']
