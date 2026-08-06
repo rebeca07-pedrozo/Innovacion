@@ -9,6 +9,10 @@ import pandas as pd
 import re, unicodedata, hashlib
 from google.colab import auth
 from googleapiclient.discovery import build
+import math
+from collections import Counter, defaultdict
+import gspread
+from google.auth import default
 
 
 # 2 - Rutas/constantes
@@ -201,3 +205,98 @@ df_chunks.to_excel('/content/drive/MyDrive/fase1_chunks.xlsx', index=False)
 
 print(f'{len(df_texto)} páginas -> {len(df_chunks)} fragmentos')
 display(df_chunks.groupby('nombre_archivo')[['radicado','fecha','entidad','tema','subtema']].first())
+
+#11 - Construccion del indice 
+
+
+STOPWORDS = set("""a al algo algun alguna algunas alguno algunos ante antes aquel aquella aquellas
+aquello aquellos aqui asi aun aunque cada como con contra cual cuales cuando cuanto de del desde donde
+dos e el ella ellas ello ellos en entre era eran es esa esas ese eso esos esta estan estas este esto
+estos fue fueron ha haber habia han hasta hay la las le les lo los mas me mi mientras mismo mucho muy
+nada ni no nos nuestra nuestro o os otra otras otro otros para pero poco por porque que quien quienes
+se segun ser si sin sobre son su sus tal tambien tanto te tiene tienen toda todas todo todos tras un
+una unas uno unos y ya""".split())
+
+def raiz(p):
+    if len(p) > 5:
+        for suf in ('ciones', 'idades'):
+            if p.endswith(suf):
+                return p[:-len(suf)] + suf[0]
+    if len(p) > 4 and p.endswith('es'):
+        return p[:-2]
+    if len(p) > 3 and p.endswith('s'):
+        return p[:-1]
+    return p
+
+def tokenizar(texto):
+    return [raiz(p) for p in normalizar(texto).split()
+            if len(p) > 2 and p not in STOPWORDS]
+
+PESO_TEMA, K1, B = 3, 1.5, 0.75
+
+postings, longitudes = defaultdict(dict), {}
+
+for _, r in df_chunks.iterrows():
+    toks = tokenizar(r.texto)
+    encabezado = ' '.join(str(x) for x in [r.tema, r.subtema, r.entidad]
+                          if x and str(x) != 'nan')
+    tf = Counter(toks)
+    for t, n in Counter(tokenizar(encabezado)).items():
+        tf[t] += n * PESO_TEMA
+    longitudes[r.chunk_id] = len(toks)
+    for t, n in tf.items():
+        postings[t][r.chunk_id] = n
+
+N = len(df_chunks)
+avgdl = sum(longitudes.values()) / N
+idf = {t: math.log(1 + (N - len(d) + 0.5) / (len(d) + 0.5)) for t, d in postings.items()}
+
+print(f'{N} fragmentos | {len(postings)} términos | avgdl {avgdl:.1f}')
+
+#12 - Poblacion del ranking 
+def buscar(q, top=5):
+    puntajes = defaultdict(float)
+    for t in tokenizar(q):
+        if t not in postings:
+            continue
+        for cid, f in postings[t].items():
+            dl = longitudes[cid]
+            puntajes[cid] += idf[t] * (f * (K1 + 1)) / (f + K1 * (1 - B + B * dl / avgdl))
+    return sorted(puntajes.items(), key=lambda x: -x[1])[:top]
+
+for q in ['diferencia en cambio', 'estampillas distritales', 'ICA sector financiero']:
+    print(f'\n>>> {q}')
+    for cid, s in buscar(q):
+        r = df_chunks[df_chunks.chunk_id == cid].iloc[0]
+        print(f'  {s:6.2f}  p{r.pagina}  {r.nombre_archivo[:45]}')
+
+#13 - Volcado a Google Sheets 
+
+
+creds, _ = default()
+gc = gspread.authorize(creds)
+
+sh = gc.create('indice_doctrina_tributaria')
+print('Sheet creado:', sh.url)
+print('SHEET_ID:', sh.id)   
+
+cols = ['chunk_id','nombre_archivo','file_id','pagina','radicado','fecha',
+        'anio','entidad','tema','subtema','texto']
+frag = df_chunks[cols].fillna('').astype(str)
+ws = sh.sheet1
+ws.update_title('Fragmentos')
+ws.update([cols] + frag.values.tolist())
+
+idx = [['termino','df','idf','postings']] + [
+    [t, len(d), round(idf[t], 4), ','.join(f'{c}:{n}' for c, n in d.items())]
+    for t, d in sorted(postings.items())
+]
+sh.add_worksheet('Indice', rows=len(idx)+10, cols=4).update(idx)
+
+stats = [['clave','valor'],
+         ['N', N], ['avgdl', round(avgdl, 4)],
+         ['k1', K1], ['b', B], ['peso_tema', PESO_TEMA]] + \
+        [['len:' + c, l] for c, l in longitudes.items()]
+sh.add_worksheet('Stats', rows=len(stats)+10, cols=2).update(stats)
+
+print(f'Listo: {len(frag)} fragmentos, {len(idx)-1} términos')
