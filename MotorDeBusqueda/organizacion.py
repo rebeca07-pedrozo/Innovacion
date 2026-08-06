@@ -31,23 +31,21 @@ for a in archivos:
 textos = []
 for ruta in archivos:
     nombre_archivo = os.path.basename(ruta)
-    nombre_sin_ext = os.path.splitext(nombre_archivo[0])
     try:
         with pdfplumber.open(ruta) as pdf:
-            total_paginas = len(pdf.pages)
             for i, pagina in enumerate(pdf.pages, start=1):
                 textos.append({
                     'nombre_archivo': nombre_archivo,
                     'ruta_completa': ruta,
-                    'archivo': archivo,
                     'pagina': i,
                     'texto': pagina.extract_text() or ''
                 })
     except Exception as e:
-        print(f'Error en {archivo}: {e}')
+
 df_texto = pd.DataFrame(textos)
-print(f'Erro en {nombre_archivo}: e')
 print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
+print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
+
 
 
 #5 - Páginas sin texto
@@ -276,9 +274,21 @@ for q in ['diferencia en cambio', 'estampillas distritales', 'ICA sector financi
 creds, _ = default()
 gc = gspread.authorize(creds)
 
-sh = gc.create('indice_doctrina_tributaria')
-print('Sheet creado:', sh.url)
-print('SHEET_ID:', sh.id)   
+NOMBRE = 'indice_doctrina_tributaria'
+FOLDER_ID = 'pega_aqui_el_id_de_MotorDeBusqueda'
+
+try:
+    sh = gc.open(NOMBRE)
+    print('Reutilizando el existente')
+    for ws_viejo in sh.worksheets()[1:]:
+        sh.del_worksheet(ws_viejo)
+    sh.sheet1.clear()
+except gspread.SpreadsheetNotFound:
+    sh = gc.create(NOMBRE, folder_id=FOLDER_ID)
+    print('Creado nuevo')
+
+print('URL:', sh.url)
+print('SHEET_ID:', sh.id) 
 
 cols = ['chunk_id','nombre_archivo','file_id','pagina','radicado','fecha',
         'anio','entidad','tema','subtema','texto']
@@ -300,3 +310,6 @@ stats = [['clave','valor'],
 sh.add_worksheet('Stats', rows=len(stats)+10, cols=2).update(stats)
 
 print(f'Listo: {len(frag)} fragmentos, {len(idx)-1} términos')
+
+
+#has not this changed
