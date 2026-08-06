@@ -6,6 +6,10 @@ import glob
 import glob, os
 import pdfplumber
 import pandas as pd
+import re, unicodedata, hashlib
+from google.colab import auth
+from googleapiclient.discovery import build
+
 
 # 2 - Rutas/constantes
 CARPETA = '/content/drive/MyDrive/MotorDeBusqueda/input_pdfs'
@@ -21,7 +25,6 @@ for a in archivos:
 
 #4 - Extraer texto de los PDFs
 textos = []
-
 for ruta in archivos:
     nombre_archivo = os.path.basename(ruta)
     nombre_sin_ext = os.path.splitext(nombre_archivo[0])
@@ -36,31 +39,165 @@ for ruta in archivos:
                     'pagina': i,
                     'texto': pagina.extract_text() or ''
                 })
-
     except Exception as e:
         print(f'Error en {archivo}: {e}')
-
 df_texto = pd.DataFrame(textos)
 print(f'Erro en {nombre_archivo}: e')
-
 print(f'{df_texto.nombre_archivo.nunique()} archivos | {len(df_texto)} páginas')
+
 
 #6 - Páginas sin texto
 vacias = df_texto[df_texto.texto.str.strip() == '']
 print(f'Páginas sin texto: {len(vacias)} de {len(df_texto)}')
 print(df_texto.iloc[0].texto[:2000])
 
-#7 - 
+
+#7 - Resumen por archivo
 df_resumen = df_texto.groupby('nombre_archivo').agg(
     total_paginas=('pagina', 'max'),
     caracteres=('texto', lambda s: s.str.len().sum()),
     paginas_vacias=('texto', lambda s: (s.str.strip() == '').sum())
 ).reset_index()
 df_resumen['posible_escaneado'] = df_resumen.caracteres < 50
-
-
 with pd.ExcelWriter(SALIDA) as w:
     df_resumen.to_excel(w, sheet_name='resumen', index=False)
     df_texto.to_excel(w, sheet_name='texto_detallado', index=False)
-
 print('Guardado en', SALIDA)
+
+
+#8 - funciones de normalización y metadatos
+MESES = 'enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre'
+RE_FECHA = rf'(\d{{1,2}}\s+de\s+(?:{MESES})\s+de\s+\d{{4}}|(?:{MESES})\s+de\s+\d{{4}})'
+RE_RAD_ARCHIVO = r'(\d{4}[A-Z]{2}\d{4,}[A-Z]?\d*)'
+RE_RAD_TEXTO = r'Radicado[:\s]+(?:Solicitud\s+)?([A-Z0-9][A-Z0-9\-]{5,24})'
+
+ENTIDADES = [
+    ('impuestos de bogota',                       'DIB - Dirección Distrital de Impuestos de Bogotá'),
+    ('fortalecimiento institucional territorial', 'MinHacienda - Apoyo Fiscal'),
+    ('ministerio de hacienda',                    'MinHacienda'),
+    ('secretaria distrital de hacienda',          'SDH - Secretaría Distrital de Hacienda'),
+]
+
+def sin_tildes(s):
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
+
+def normalizar(s):
+    s = sin_tildes(s.lower())
+    s = re.sub(r'[^a-z0-9ñ\s]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+def campo(cab, etiqueta):
+    r = re.search(rf'(?:^|\n)\s*{etiqueta}\s*:?\s*(.+)', cab, re.I)
+    return r.group(1).strip(' .:-') if r else None
+
+def metadatos(cab, archivo):
+    plano = re.sub(r'\s+', ' ', sin_tildes(cab).lower())
+
+    rad = re.search(RE_RAD_ARCHIVO, archivo) or re.search(RE_RAD_TEXTO, cab)
+    f = re.search(RE_FECHA, cab[:500], re.I)
+    if f:
+        fecha = f.group(1).lower()
+    else:
+        f2 = re.search(rf'(\d{{1,2}})[-_\s]de[-_\s]({MESES})[-_\s]de[-_\s](\d{{4}})', archivo, re.I)
+        fecha = f'{f2.group(1)} de {f2.group(2).lower()} de {f2.group(3)}' if f2 else None
+
+    a = re.search(r'(19|20)\d{2}', fecha or archivo)
+    tema = campo(cab, 'Tema') or campo(cab, r'Problema jur[ií]dico') or campo(cab, 'ASUNTO')
+    subtema = campo(cab, 'Subtema') or campo(cab, r'Descriptores? especiales?')
+
+    return {
+        'radicado': rad.group(1) if rad else None,
+        'fecha': fecha,
+        'anio': int(a.group(0)) if a else None,
+        'entidad': next((v for k, v in ENTIDADES if k in plano), None),
+        'tema': tema[:120] if tema else None,
+        'subtema': subtema[:160] if subtema else None,
+    }
+
+
+#9 - reflujo de líneas y fragmentación
+def reflow(texto):
+    parrafos, buf = [], ''
+    for l in (x.strip() for x in texto.split('\n')):
+        if not l:
+            continue
+        if buf and buf.endswith(('.', ':', '?', '!')) and len(buf) > 200:
+            parrafos.append(buf); buf = l
+        else:
+            buf = f'{buf} {l}'.strip()
+    if buf:
+        parrafos.append(buf)
+    return parrafos
+
+def trocear(parrafos, objetivo=800, solape=150, minimo=250):
+    chunks, buf = [], ''
+    for p in parrafos:
+        if not buf:
+            buf = p
+        elif len(buf) + len(p) + 1 <= objetivo:
+            buf = f'{buf} {p}'
+        else:
+            chunks.append(buf)
+            cola = buf[-solape:]
+            corte = cola.find(' ')
+            buf = ((cola[corte+1:] if corte > 0 else '') + ' ' + p).strip()
+        while len(buf) > objetivo * 1.5:
+            corte = buf.rfind(' ', 0, objetivo)
+            chunks.append(buf[:corte])
+            buf = buf[max(0, corte - solape):].strip()
+    if buf:
+        chunks.append(buf)
+
+    fusionados = []
+    for c in chunks:
+        if fusionados and len(c) < minimo:
+            fusionados[-1] = f'{fusionados[-1]} {c}'
+        else:
+            fusionados.append(c)
+    return fusionados
+
+
+#10 - obtener el file_id de Drive
+auth.authenticate_user()
+drive = build('drive', 'v3')
+
+def obtener_file_id(nombre):
+    n = nombre.replace("'", "\\'")
+    r = drive.files().list(
+        q=f"name = '{n}' and trashed = false",
+        fields='files(id, name)', pageSize=5,
+        supportsAllDrives=True, includeItemsFromAllDrives=True
+    ).execute()
+    archivos = r.get('files', [])
+    return archivos[0]['id'] if archivos else None
+
+ids = {a: obtener_file_id(a) for a in df_texto.nombre_archivo.unique()}
+for a, i in ids.items():
+    print(('OK  ' if i else 'FALTA'), a, '->', i)
+
+
+#11 - Construir la tabla y guardarla
+filas = []
+for archivo, g in df_texto.groupby('nombre_archivo', sort=False):
+    g = g.sort_values('pagina')
+    meta = metadatos(str(g.texto.iloc[0])[:2200], archivo)
+    sigla = hashlib.md5(archivo.encode()).hexdigest()[:6]
+
+    for _, pag in g.iterrows():
+        for k, ch in enumerate(trocear(reflow(str(pag.texto))), start=1):
+            filas.append({
+                'chunk_id': f'{sigla}-p{int(pag.pagina)}-{k}',
+                'nombre_archivo': archivo,
+                'file_id': ids.get(archivo),
+                'pagina': int(pag.pagina),
+                **meta,
+                'texto': ch,
+                'texto_norm': normalizar(ch),
+            })
+
+df_chunks = pd.DataFrame(filas)
+df_chunks.to_excel('/content/drive/MyDrive/fase1_chunks.xlsx', index=False)
+
+print(f'{len(df_texto)} páginas -> {len(df_chunks)} fragmentos')
+display(df_chunks.groupby('nombre_archivo')[['radicado','fecha','entidad','tema','subtema']].first())
