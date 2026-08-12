@@ -68,43 +68,64 @@ RUTA_PDF = os.path.join(CARPETA_FORMULARIO, pdfs[0])
 print("PDF encontrado:", pdfs[0])
 
 #5
+# ============================================================
+# BLOQUE 5 — Extracción de palabras con posición (con dedup)
+# ============================================================
 palabras = []
 
 with pdfplumber.open(RUTA_PDF) as pdf:
     for num_pagina, pagina in enumerate(pdf.pages, start=1):
-        encontradas = pagina.extract_words(extra_attrs=["size", "upright"])
-        for p in encontradas:
+        for p in pagina.extract_words(extra_attrs=["size", "upright"]):
+            # Se descarta texto rotado (marca de agua diagonal)
             if p.get("upright", True) is False:
                 continue
             palabras.append({
                 "pagina": num_pagina,
                 "texto": p["text"].strip(),
                 "x0": round(p["x0"], 1),
-                "x1": round(p["x1"], 1),
                 "top": round(p["top"], 1),
                 "size": round(p.get("size", 0), 1),
             })
 
 df_palabras = pd.DataFrame(palabras)
-print(f"Palabras extraídas: {len(df_palabras)} en {df_palabras['pagina'].nunique()} páginas")
+
+# El PDF dibuja parte del texto dos veces en la misma coordenada:
+# se elimina la capa duplicada antes de cualquier procesamiento.
+df_palabras = df_palabras.drop_duplicates(
+    subset=["pagina", "texto", "x0", "top"]
+).reset_index(drop=True)
+
+print(f"Palabras únicas: {len(df_palabras)} | Páginas: {df_palabras['pagina'].nunique()}")
 
 #6
+# ============================================================
+# BLOQUE 6 — Identificación de números de renglón
+# ============================================================
 PATRON_RENGLON = re.compile(r"^\d{1,3}$")
-RANGO_RENGLON  = (20, 200)  
+RANGO_RENGLON  = (29, 155)
 
-es_numero_corto = df_palabras["texto"].str.match(PATRON_RENGLON)
-df_cand = df_palabras[es_numero_corto].copy()
+# Zonas donde NO hay números de renglón (contador de filas de la hoja 2)
+X_MINIMO_VALIDO = 60
+
+df_cand = df_palabras[df_palabras["texto"].str.match(PATRON_RENGLON)].copy()
 df_cand["valor_num"] = df_cand["texto"].astype(int)
 
 df_cand = df_cand[
-    df_cand["valor_num"].between(RANGO_RENGLON[0], RANGO_RENGLON[1])
+    df_cand["valor_num"].between(*RANGO_RENGLON) &
+    (df_cand["x0"] >= X_MINIMO_VALIDO)
 ].copy()
 
-umbral_size = df_cand["size"].median()
-df_cand = df_cand[df_cand["size"] <= umbral_size + 0.5].copy()
+# En la hoja 2 solo son válidos los renglones del bloque de totales (>= 141)
+df_cand = df_cand[
+    (df_cand["pagina"] == 1) | (df_cand["valor_num"] >= 141)
+].copy()
 
-print(f"Candidatos a renglón: {len(df_cand)}")
-print("Rango detectado:", df_cand['valor_num'].min(), "-", df_cand['valor_num'].max())
+# Un mismo número puede aparecer una sola vez: se conserva el de fuente menor
+df_cand = df_cand.sort_values("size").drop_duplicates(
+    subset=["pagina", "valor_num"], keep="first"
+)
+
+print(f"Renglones detectados: {len(df_cand)}")
 
 
 #7
@@ -135,50 +156,101 @@ for pag in sorted(df_cand["pagina"].unique()):
 
 #8
 
-MAPA_BANDAS = {
-    1: {"x_min": 235, "x_max": 260, "tipo_persona": "JURIDICA", "tipo_valor": "BASE"},
-    2: {"x_min": 400, "x_max": 425, "tipo_persona": "JURIDICA", "tipo_valor": "RETENCION"},
-    3: {"x_min": 590, "x_max": 615, "tipo_persona": "NATURAL",  "tipo_valor": "BASE"},
-    4: {"x_min": 750, "x_max": 780, "tipo_persona": "NATURAL",  "tipo_valor": "RETENCION"},
-}
+# ============================================================
+# BLOQUE 8 — Mapeo de bandas y secciones (valores reales del F350)
+# ============================================================
+# Bandas verticales observadas en la extracción
+MAPA_BANDAS = [
+    {"x_min": 150, "x_max": 160, "tipo_persona": "JURIDICA", "tipo_valor": "BASE"},
+    {"x_min": 260, "x_max": 270, "tipo_persona": "JURIDICA", "tipo_valor": "RETENCION"},
+    {"x_min": 370, "x_max": 380, "tipo_persona": "NATURAL",  "tipo_valor": "BASE"},
+    {"x_min": 482, "x_max": 492, "tipo_persona": "NATURAL",  "tipo_valor": "RETENCION"},
+]
 
-LIMITE_ETIQUETA_X = 235
+# Secciones horizontales por posición vertical
+MAPA_SECCIONES = [
+    {"pagina": 1, "top_min": 236, "top_max": 452, "seccion": "CONCEPTOS"},
+    {"pagina": 1, "top_min": 452, "top_max": 560, "seccion": "AUTORRETENCIONES"},
+    {"pagina": 1, "top_min": 560, "top_max": 700, "seccion": "TOTALES"},
+    {"pagina": 2, "top_min": 700, "top_max": 780, "seccion": "TOTALES_EXTERIOR"},
+]
 
-def asignar_dimensiones(x0):
-    """Devuelve las dimensiones correspondientes a la posición X del renglón."""
-    for banda in MAPA_BANDAS.values():
-        if banda["x_min"] <= x0 <= banda["x_max"]:
-            return banda["tipo_persona"], banda["tipo_valor"]
+def asignar_seccion(pagina, top):
+    """Devuelve la sección del formulario según la posición vertical."""
+    for s in MAPA_SECCIONES:
+        if s["pagina"] == pagina and s["top_min"] <= top < s["top_max"]:
+            return s["seccion"]
+    return ""
+
+def asignar_dimensiones(x0, seccion):
+    """Asigna dimensiones solo donde el formulario las tiene."""
+    # Los totales ocupan la misma banda X pero no representan tipo de persona
+    if seccion in ("TOTALES", "TOTALES_EXTERIOR", ""):
+        return "", ""
+    for b in MAPA_BANDAS:
+        if b["x_min"] <= x0 <= b["x_max"]:
+            return b["tipo_persona"], b["tipo_valor"]
     return "", ""
 
-df_cand[["tipo_persona", "tipo_valor"]] = df_cand["x0"].apply(
-    lambda x: pd.Series(asignar_dimensiones(x))
+df_cand["seccion"] = df_cand.apply(
+    lambda f: asignar_seccion(f["pagina"], f["top"]), axis=1
+)
+df_cand[["tipo_persona", "tipo_valor"]] = df_cand.apply(
+    lambda f: pd.Series(asignar_dimensiones(f["x0"], f["seccion"])), axis=1
 )
 
-sin_mapear = (df_cand["tipo_persona"] == "").sum()
-print(f"Renglones mapeados: {len(df_cand) - sin_mapear} | Sin mapear: {sin_mapear}")
+print(df_cand["seccion"].value_counts().to_string())
 
 #9 
-TOLERANCIA_Y = 6   
+# ============================================================
+# BLOQUE 9 — Asociación de etiquetas con agrupación por líneas
+# ============================================================
+TOL_BANDA = 7.0    # alto de la fila del renglón
+TOL_LINEA = 3.0    # separación máxima dentro de una misma línea de texto
+
+# Límite de la columna de etiquetas, distinto en cada página
+LIMITE_ETIQUETA = {1: 152.0, 2: 330.0}
+
 df_etiquetas = df_palabras[
-    (df_palabras["x0"] < LIMITE_ETIQUETA_X) &
-    (df_palabras["texto"].str.contains(r"[A-Za-zÁÉÍÓÚáéíóúÑñ]", regex=True))
+    df_palabras["texto"].str.contains(r"[A-Za-zÁÉÍÓÚáéíóúÑñ]", regex=True)
 ].copy()
 
 def buscar_etiqueta(pagina, top):
-    """Reconstruye el texto de la etiqueta ubicada en la misma fila."""
-    misma_fila = df_etiquetas[
+    """Reconstruye la etiqueta agrupando primero por línea y luego por posición X."""
+    limite = LIMITE_ETIQUETA.get(pagina, 152.0)
+    banda = df_etiquetas[
         (df_etiquetas["pagina"] == pagina) &
-        (df_etiquetas["top"].between(top - TOLERANCIA_Y, top + TOLERANCIA_Y))
-    ].sort_values("x0")
-    return " ".join(misma_fila["texto"].tolist()).strip()
+        (df_etiquetas["x0"] < limite) &
+        (df_etiquetas["top"].between(top - TOL_BANDA, top + TOL_BANDA))
+    ].sort_values("top")
+
+    if banda.empty:
+        return ""
+
+    # Agrupación en líneas de texto por proximidad vertical
+    lineas, actual = [], [banda.iloc[0]]
+    for _, w in banda.iloc[1:].iterrows():
+        if abs(w["top"] - actual[-1]["top"]) <= TOL_LINEA:
+            actual.append(w)
+        else:
+            lineas.append(actual)
+            actual = [w]
+    lineas.append(actual)
+
+    # Dentro de cada línea sí se ordena horizontalmente
+    partes = [
+        " ".join(w["texto"] for w in sorted(linea, key=lambda w: w["x0"]))
+        for linea in lineas
+    ]
+    return re.sub(r"\s+", " ", " ".join(partes)).strip()
 
 df_cand["etiqueta"] = df_cand.apply(
     lambda f: buscar_etiqueta(f["pagina"], f["top"]), axis=1
 )
 
 df_cand["confianza"] = df_cand.apply(
-    lambda f: "ALTA" if (f["etiqueta"] and f["tipo_persona"]) else "REVISAR", axis=1
+    lambda f: "ALTA" if (len(f["etiqueta"]) > 3 and f["seccion"]) else "REVISAR",
+    axis=1
 )
 
 print(df_cand["confianza"].value_counts().to_string())
@@ -206,6 +278,21 @@ df_final = pd.DataFrame({
 df_final = df_final.sort_values(["pagina", "nro_renglon"]).reset_index(drop=True)
 print(f"Registros listos para staging: {len(df_final)}")
 df_final.head(15)
+#10.5
+# ============================================================
+# BLOQUE 10.5 — Verificación de renglones faltantes
+# ============================================================
+RENGLONES_ESPERADOS = set(range(29, 139)) | set(range(141, 156))
+
+detectados = set(df_final["nro_renglon"].tolist())
+faltantes  = sorted(RENGLONES_ESPERADOS - detectados)
+sobrantes  = sorted(detectados - RENGLONES_ESPERADOS)
+sin_etiqueta = df_final[df_final["etiqueta"].str.len() < 4]["nro_renglon"].tolist()
+
+print(f"Detectados: {len(detectados)} de {len(RENGLONES_ESPERADOS)}")
+print(f"Faltantes: {faltantes}")
+print(f"Sobrantes: {sobrantes}")
+print(f"Sin etiqueta: {sin_etiqueta}")
 
 #11
 
