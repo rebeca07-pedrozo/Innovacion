@@ -37,9 +37,35 @@ except gspread.WorksheetNotFound:
 print("Hoja de staging lista:", hoja_staging.title)
 
 #4
-archivos_subidos = files.upload()
-RUTA_PDF = list(archivos_subidos.keys())[0]
-print("PDF cargado:", RUTA_PDF)
+import os
+from google.colab import drive
+
+drive.mount('/content/drive', force_remount=True)
+
+# --- Ruta de la carpeta de formularios base ---
+RUTA_BASE = "/content/drive/MyDrive/SISTEMA_DECLARACIONES/2_FORMULARIOS_BASE"
+CARPETA_FORMULARIO = os.path.join(RUTA_BASE, COD_FORMULARIO, VERSION_FORM)
+
+# Se crea la ruta si aún no existe (el bootstrap posterior no la duplicará)
+os.makedirs(CARPETA_FORMULARIO, exist_ok=True)
+
+# --- Búsqueda del PDF dentro de la carpeta ---
+pdfs = [f for f in os.listdir(CARPETA_FORMULARIO) if f.lower().endswith(".pdf")]
+
+if len(pdfs) == 0:
+    raise FileNotFoundError(
+        f"No hay ningún PDF en: {CARPETA_FORMULARIO}\n"
+        f"Sube allí el formulario oficial y vuelve a ejecutar este bloque."
+    )
+elif len(pdfs) > 1:
+    raise ValueError(
+        f"Hay {len(pdfs)} PDF en la carpeta y no se puede determinar cuál usar:\n"
+        + "\n".join(f"  - {p}" for p in pdfs)
+        + "\nDeja solo el formulario oficial de esta versión."
+    )
+
+RUTA_PDF = os.path.join(CARPETA_FORMULARIO, pdfs[0])
+print("PDF encontrado:", pdfs[0])
 
 #5
 palabras = []
