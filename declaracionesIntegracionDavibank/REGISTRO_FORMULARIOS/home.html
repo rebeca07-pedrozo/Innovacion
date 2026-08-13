@@ -37,30 +37,20 @@
     padding: clamp(18px, 3vw, 44px) clamp(14px, 4vw, 60px);
   }
   .saludo {
-    font-size: clamp(17px, 2.4vw, 30px);
+    font-size: clamp(13px, 1.4vw, 19px);
     font-weight: 400;
-    margin: 0 0 clamp(18px, 3vw, 40px);
+    color: #444;
+    margin: 0 0 clamp(16px, 2.4vw, 32px);
   }
 
-  /* ---------- Bloques ---------- */
-  .bloques {
+  /* ---------- Tarjetas ---------- */
+  .tarjetas {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: clamp(14px, 2.2vw, 32px);
     max-width: 1400px;
   }
 
-  .bloque { display: flex; flex-direction: column; }
-
-  .rotulo {
-    font-size: clamp(15px, 1.7vw, 23px);
-    font-weight: 700;
-    color: #222;
-    margin: 0 0 clamp(8px, 1vw, 14px);
-    padding-left: 4px;
-  }
-
-  /* ---------- Tarjeta ---------- */
   .tarjeta {
     position: relative;
     background: #F7EDEC;
@@ -77,13 +67,24 @@
   .tarjeta:hover { transform: translateY(-3px); }
   .tarjeta:focus-visible { outline: 3px solid #731919; outline-offset: 2px; }
 
+  .rotulo {
+    position: absolute;
+    z-index: 4;
+    top: clamp(10px, 1.4vw, 18px);
+    left: clamp(12px, 1.6vw, 22px);
+    font-size: clamp(14px, 1.6vw, 22px);
+    font-weight: 700;
+    color: #222;
+    margin: 0;
+  }
+
   /* Cuarto de círculo desde la esquina inferior izquierda */
   .arco {
     position: absolute;
     left: 0;
     bottom: 0;
     width: 82%;
-    height: 88%;
+    height: 82%;
     border-top-right-radius: 100%;
     z-index: 1;
   }
@@ -92,7 +93,7 @@
     position: absolute;
     z-index: 2;
     left: 50%;
-    top: 46%;
+    top: 50%;
     transform: translate(-50%, -50%);
     width: clamp(48px, 6.5vw, 96px);
     height: auto;
@@ -104,7 +105,7 @@
     left: 50%;
     bottom: clamp(10px, 1.6vw, 22px);
     transform: translateX(-50%);
-    background: #F7EDEC;
+    background: rgba(255, 255, 255, 0.88);
     border: none;
     border-radius: 999px;
     padding: clamp(7px, 0.9vw, 12px) clamp(16px, 2vw, 30px);
@@ -116,9 +117,10 @@
   }
   .tarjeta:hover .accion { background: #FFF; }
 
-  .t-naranja .arco { background: #F5A81C; }
-  .t-morado  .arco { background: #5B18E8; }
-  .t-rojo    .arco { background: #E8112D; }
+  /* Colores translúcidos para que la ilustración se lea sobre el arco */
+  .t-naranja .arco { background: rgba(245, 168, 28, 0.62); }
+  .t-morado  .arco { background: rgba(91, 24, 232, 0.55); }
+  .t-rojo    .arco { background: rgba(232, 17, 45, 0.58); }
 
   @media (max-width: 620px) {
     .tarjeta { aspect-ratio: 16 / 10; }
@@ -135,34 +137,28 @@
 <div class="contenido">
   <p class="saludo" id="saludo">Bienvenido/a.</p>
 
-  <div class="bloques">
+  <div class="tarjetas">
 
-    <div class="bloque">
-      <h2 class="rotulo">Generar plantilla</h2>
-      <button class="tarjeta t-naranja" onclick="irA('generar')">
-        <span class="arco"></span>
-        <img class="icono" src="PEGAR_AQUI_ICONO_GENERAR" alt="">
-        <span class="accion">Ir a generar plantilla</span>
-      </button>
-    </div>
+    <button class="tarjeta t-naranja" onclick="irA('generar')">
+      <span class="rotulo">Generar plantilla</span>
+      <span class="arco"></span>
+      <img class="icono" src="PEGAR_AQUI_ICONO_GENERAR" alt="">
+      <span class="accion">Ir a generar plantilla</span>
+    </button>
 
-    <div class="bloque">
-      <h2 class="rotulo">Cargar declaración</h2>
-      <button class="tarjeta t-morado" onclick="irA('cargar')">
-        <span class="arco"></span>
-        <img class="icono" src="PEGAR_AQUI_ICONO_CARGAR" alt="">
-        <span class="accion">Ir a cargar declaración</span>
-      </button>
-    </div>
+    <button class="tarjeta t-morado" onclick="irA('cargar')">
+      <span class="rotulo">Cargar declaración</span>
+      <span class="arco"></span>
+      <img class="icono" src="PEGAR_AQUI_ICONO_CARGAR" alt="">
+      <span class="accion">Ir a cargar declaración</span>
+    </button>
 
-    <div class="bloque">
-      <h2 class="rotulo">Consolidar</h2>
-      <button class="tarjeta t-rojo" onclick="irA('consolidar')">
-        <span class="arco"></span>
-        <img class="icono" src="PEGAR_AQUI_ICONO_CONSOLIDAR" alt="">
-        <span class="accion">Ir a consolidar</span>
-      </button>
-    </div>
+    <button class="tarjeta t-rojo" onclick="irA('consolidar')">
+      <span class="rotulo">Consolidar</span>
+      <span class="arco"></span>
+      <img class="icono" src="PEGAR_AQUI_ICONO_CONSOLIDAR" alt="">
+      <span class="accion">Ir a consolidar</span>
+    </button>
 
   </div>
 </div>
