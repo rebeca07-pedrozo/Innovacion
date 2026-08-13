@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 0; padding: 0;
+    background: #F5F5F5;
+    color: #333;
+    font-size: 14px;
+  }
+  .barra {
+    background: #E1121C;
+    color: #FFF;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .barra .marca { font-weight: bold; font-size: 16px; letter-spacing: 1px; }
+  .barra .titulo { font-size: 15px; }
+  .contenido { max-width: 900px; margin: 0 auto; padding: 20px; }
+  .ruta { font-size: 13px; color: #666; margin-bottom: 16px; }
+  .ruta a { color: #E1121C; text-decoration: none; cursor: pointer; }
+
+  .tarjetas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .tarjeta {
+    background: #FFF; border: 1px solid #DDD; border-radius: 6px;
+    padding: 20px; text-align: center; cursor: pointer;
+  }
+  .tarjeta:hover { border-color: #E1121C; }
+  .tarjeta h3 { margin: 0 0 8px; font-size: 15px; }
+  .tarjeta p { margin: 0; font-size: 13px; color: #666; }
+
+  .panel {
+    background: #FFF; border: 1px solid #DDD; border-radius: 6px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .panel h3 { margin: 0 0 14px; font-size: 15px; }
+
+  .campos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .campo label {
+    display: block; font-size: 13px; color: #666; margin-bottom: 5px;
+  }
+  select, input[type=file] {
+    width: 100%; padding: 8px; border: 1px solid #CCC;
+    border-radius: 4px; font-size: 14px; background: #FFF;
+  }
+
+  button {
+    background: #E1121C; color: #FFF; border: none; border-radius: 4px;
+    padding: 10px 18px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #B60E16; }
+  button.gris { background: #FFF; color: #333; border: 1px solid #CCC; }
+  button.gris:hover { background: #F0F0F0; }
+  button:disabled { background: #CCC; cursor: not-allowed; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th {
+    background: #F0F0F0; text-align: left; padding: 9px;
+    border-bottom: 1px solid #DDD; font-size: 13px;
+  }
+  td { padding: 9px; border-bottom: 1px solid #EEE; }
+
+  .marca-estado {
+    display: inline-block; padding: 3px 10px; border-radius: 3px; font-size: 12px;
+  }
+  .est-aprobado  { background: #DFF0D8; color: #2E6B2E; }
+  .est-rechazado { background: #F8D7DA; color: #8B1F26; }
+  .est-pendiente { background: #FCF3CF; color: #7D6608; }
+
+  .aviso { padding: 14px; border-radius: 4px; margin-bottom: 14px; }
+  .aviso-info { background: #E8F0FA; border: 1px solid #B8D4F0; }
+  .aviso-ok   { background: #DFF0D8; border: 1px solid #B8DDB0; }
+  .aviso-mal  { background: #F8D7DA; border: 1px solid #F0B8BC; }
+
+  .error-item {
+    border-left: 3px solid #E1121C; padding: 8px 12px;
+    margin-bottom: 8px; background: #FAFAFA; font-size: 13px;
+  }
+  .oculto { display: none; }
+  .cargando { text-align: center; padding: 30px; color: #666; }
+</style>
+</head>
+<body>
+
+<div class="barra">
+  <span class="marca">DAVIVIENDA</span>
+  <span class="titulo">Sistema de declaraciones · Integración Davibank</span>
+</div>
+
+<div class="contenido">
+
+  <!-- ===== Inicio ===== -->
+  <div id="v-inicio">
+    <p id="saludo" style="margin-bottom:18px;">Bienvenido/a.</p>
+
+    <div class="tarjetas">
+      <div class="tarjeta" onclick="irA('generar')">
+        <h3>Generar plantilla</h3>
+        <p>Crear o descargar la plantilla de un periodo</p>
+      </div>
+      <div class="tarjeta" onclick="irA('cargar')">
+        <h3>Cargar declaración</h3>
+        <p>Subir el archivo diligenciado y validarlo</p>
+      </div>
+      <div class="tarjeta" onclick="irA('consolidar')">
+        <h3>Consolidar</h3>
+        <p>Cruzar las entidades y generar el borrador</p>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:20px;">
+      <h3>Estado del periodo</h3>
+      <table id="tabla-estado">
+        <tr><td class="cargando">Cargando…</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== Generar plantilla ===== -->
+  <div id="v-generar" class="oculto">
+    <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Generar plantilla</p>
+
+    <div class="panel">
+      <div class="campos">
+        <div class="campo">
+          <label>Formulario</label>
+          <select id="g-formulario"></select>
+        </div>
+        <div class="campo">
+          <label>Entidad</label>
+          <select id="g-entidad"></select>
+        </div>
+        <div class="campo">
+          <label>Periodo</label>
+          <select id="g-periodo"></select>
+        </div>
+      </div>
+      <div style="margin-top:14px;">
+        <button onclick="consultarPlantilla()">Consultar</button>
+      </div>
+    </div>
+
+    <div id="g-resultado"></div>
+  </div>
+
+  <!-- ===== Cargar declaración ===== -->
+  <div id="v-cargar" class="oculto">
+    <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Cargar declaración</p>
+
+    <div class="panel">
+      <div class="campo" style="margin-bottom:14px;">
+        <label>Archivo diligenciado (.xlsx)</label>
+        <input type="file" id="c-archivo" accept=".xlsx,.xls">
+      </div>
+      <p style="font-size:13px; color:#666; margin:0 0 14px;">
+        Debe ser la plantilla generada por el sistema. El identificador se lee del archivo.
+      </p>
+      <button id="c-boton" onclick="enviarCarga()">Confirmar carga</button>
+    </div>
+
+    <div id="c-resultado"></div>
+  </div>
+
+  <!-- ===== Consolidar ===== -->
+  <div id="v-consolidar" class="oculto">
+    <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Consolidación</p>
+
+    <div class="panel">
+      <div class="campos" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="campo">
+          <label>Formulario</label>
+          <select id="s-formulario"></select>
+        </div>
+        <div class="campo">
+          <label>Periodo</label>
+          <select id="s-periodo" onchange="refrescarConsolidado()"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Entradas del consolidado</h3>
+      <table id="tabla-consolidado">
+        <tr><td class="cargando">Cargando…</td></tr>
+      </table>
+      <div style="margin-top:16px;">
+        <button id="s-boton" disabled>Generar consolidado</button>
+        <span id="s-motivo" style="font-size:13px; color:#666; margin-left:10px;"></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  var DATOS = null;
+
+  google.script.run.withSuccessHandler(iniciar).obtenerDatosIniciales();
+
+  function iniciar(datos) {
+    DATOS = datos;
+    document.getElementById('saludo').textContent = 'Bienvenido/a, ' + datos.usuario;
+
+    llenar('g-formulario', datos.formularios, 'codigo', 'nombre');
+    llenar('s-formulario', datos.formularios, 'codigo', 'nombre');
+    llenar('g-entidad',    datos.entidades,   'codigo', 'nombre');
+    llenar('g-periodo',    datos.periodos,    'valor',  'texto');
+    llenar('s-periodo',    datos.periodos,    'valor',  'texto');
+
+    pintarEstado(datos.estado);
+  }
+
+  function llenar(id, lista, campoValor, campoTexto) {
+    var sel = document.getElementById(id);
+    sel.innerHTML = '';
+    lista.forEach(function (item) {
+      var op = document.createElement('option');
+      op.value = item[campoValor];
+      op.textContent = item[campoTexto];
+      sel.appendChild(op);
+    });
+  }
+
+  function irA(vista) {
+    ['inicio','generar','cargar','consolidar'].forEach(function (v) {
+      document.getElementById('v-' + v).classList.add('oculto');
+    });
+    document.getElementById('v-' + vista).classList.remove('oculto');
+
+    if (vista === 'consolidar') refrescarConsolidado();
+  }
+
+  function marcaEstado(estado) {
+    var clase = estado === 'APROBADO'  ? 'est-aprobado'
+              : estado === 'RECHAZADO' ? 'est-rechazado'
+              : 'est-pendiente';
+    var texto = estado === 'APROBADO'  ? 'Aprobado'
+              : estado === 'RECHAZADO' ? 'Rechazado'
+              : 'Pendiente de carga';
+    return '<span class="marca-estado ' + clase + '">' + texto + '</span>';
+  }
+
+  function pintarEstado(datos) {
+    var html = '<tr><th>Entidad</th><th>Estado</th><th>Fecha de carga</th></tr>';
+
+    Object.keys(datos.entidades).forEach(function (cod) {
+      var e = datos.entidades[cod];
+      html += '<tr><td>' + e.entidad + '</td>' +
+              '<td>' + marcaEstado(e.estado) + '</td>' +
+              '<td>' + (e.fecha || '—') + '</td></tr>';
+    });
+
+    document.getElementById('tabla-estado').innerHTML = html;
+  }
+
+  // ----- Generar plantilla -----
+
+  function consultarPlantilla() {
+    var f = document.getElementById('g-formulario').value;
+    var e = document.getElementById('g-entidad').value;
+    var p = document.getElementById('g-periodo').value;
+
+    document.getElementById('g-resultado').innerHTML =
+      '<div class="panel"><p class="cargando">Consultando…</p></div>';
+
+    google.script.run
+      .withSuccessHandler(function (r) { pintarPlantilla(r, f, e, p); })
+      .withFailureHandler(mostrarFallo)
+      .buscarPlantillaExistente(f, e, p);
+  }
+
+  function pintarPlantilla(r, f, e, p) {
+    var html = '';
+
+    if (r.encontrada) {
+      html += '<div class="panel">' +
+              '<div class="aviso aviso-info">Ya existe una plantilla para esta combinación</div>' +
+              '<table><tr><td><strong>' + r.idPlantilla + '</strong><br>' +
+              '<span style="font-size:13px;color:#666;">Generada por ' + r.generadaPor +
+              ' · ' + r.fecha + '</span></td>' +
+              '<td style="text-align:right;">' +
+              '<button class="gris" onclick="abrir(\'' + r.url + '\')">Abrir</button> ' +
+              '<button onclick="abrir(\'' + r.urlDescarga + '\')">Descargar</button>' +
+              '</td></tr></table>' +
+              '<p style="font-size:13px;color:#666;margin:14px 0 8px;">' +
+              'Generar una nueva reemplaza la anterior para este periodo.</p>' +
+              '<button class="gris" onclick="generarNueva()">Generar nueva plantilla</button>' +
+              '</div>';
+    } else {
+      html += '<div class="panel">' +
+              '<p style="margin:0 0 14px;">No hay plantilla para esta combinación.</p>' +
+              '<button onclick="generarNueva()">Generar plantilla</button>' +
+              '</div>';
+    }
+
+    document.getElementById('g-resultado').innerHTML = html;
+  }
+
+  function generarNueva() {
+    var f = document.getElementById('g-formulario').value;
+    var e = document.getElementById('g-entidad').value;
+    var p = document.getElementById('g-periodo').value;
+
+    document.getElementById('g-resultado').innerHTML =
+      '<div class="panel"><p class="cargando">Generando plantilla…</p></div>';
+
+    google.script.run
+      .withSuccessHandler(function (r) { pintarPlantilla(r, f, e, p); })
+      .withFailureHandler(mostrarFallo)
+      .generarPlantillaDesdeWeb(f, e, p);
+  }
+
+  function abrir(url) { window.open(url, '_blank'); }
+
+  // ----- Cargar declaración -----
+
+  function enviarCarga() {
+    var input = document.getElementById('c-archivo');
+
+    if (!input.files.length) {
+      document.getElementById('c-resultado').innerHTML =
+        '<div class="panel"><div class="aviso aviso-mal">Selecciona un archivo primero.</div></div>';
+      return;
+    }
+
+    var archivo = input.files[0];
+    var boton = document.getElementById('c-boton');
+    boton.disabled = true;
+
+    document.getElementById('c-resultado').innerHTML =
+      '<div class="panel"><p class="cargando">Procesando y validando…</p></div>';
+
+    var lector = new FileReader();
+
+    lector.onload = function (ev) {
+      var base64 = ev.target.result.split(',')[1];
+
+      google.script.run
+        .withSuccessHandler(function (r) { pintarCarga(r); boton.disabled = false; })
+        .withFailureHandler(function (e) { mostrarFallo(e); boton.disabled = false; })
+        .recibirCarga(base64, archivo.name);
+    };
+
+    lector.readAsDataURL(archivo);
+  }
+
+  function pintarCarga(r) {
+    var html = '<div class="panel">';
+
+    if (!r.ok) {
+      html += '<div class="aviso aviso-mal"><strong>No se pudo procesar</strong><br>' +
+              r.mensaje + '</div>';
+    } else if (r.estado === 'APROBADO') {
+      html += '<div class="aviso aviso-ok"><strong>Aprobado</strong><br>' +
+              'Radicado ' + r.radicado + ' · ' + r.resumen + '</div>';
+    } else {
+      html += '<div class="aviso aviso-mal"><strong>Rechazado</strong><br>' +
+              r.resumen + '</div>';
+      html += '<h3>Detalle</h3>';
+      r.errores.forEach(function (e) {
+        html += '<div class="error-item">' + e.mensaje + '</div>';
+      });
+    }
+
+    html += '<div style="margin-top:14px;">' +
+            '<button class="gris" onclick="irA(\'cargar\')">Cargar de nuevo</button></div>';
+    html += '</div>';
+
+    document.getElementById('c-resultado').innerHTML = html;
+  }
+
+  // ----- Consolidar -----
+
+  function refrescarConsolidado() {
+    var f = document.getElementById('s-formulario').value;
+    var p = document.getElementById('s-periodo').value;
+
+    google.script.run
+      .withSuccessHandler(pintarConsolidado)
+      .withFailureHandler(mostrarFallo)
+      .obtenerEstadoPeriodo(f, p);
+  }
+
+  function pintarConsolidado(datos) {
+    var html = '<tr><th>Entidad</th><th>Fecha de carga</th><th>Estado</th></tr>';
+    var listas = true;
+
+    Object.keys(datos.entidades).forEach(function (cod) {
+      var e = datos.entidades[cod];
+      if (e.estado !== 'APROBADO') listas = false;
+
+      html += '<tr><td>' + e.entidad + '</td>' +
+              '<td>' + (e.fecha || '—') + '</td>' +
+              '<td>' + marcaEstado(e.estado) + '</td></tr>';
+    });
+
+    document.getElementById('tabla-consolidado').innerHTML = html;
+    document.getElementById('s-boton').disabled = !listas;
+    document.getElementById('s-motivo').textContent =
+      listas ? '' : 'Faltan cargas aprobadas de todas las entidades';
+  }
+
+  function mostrarFallo(e) {
+    alert('Ocurrió un problema: ' + e.message);
+  }
+</script>
+
+</body>
+</html>
