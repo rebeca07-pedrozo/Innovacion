@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+    color: #222;
+    background: #FFF;
+  }
+
+  /* Fondo punteado */
+  body {
+    background-image: radial-gradient(#D8D8D8 1px, transparent 1px);
+    background-size: 18px 18px;
+    min-height: 100vh;
+  }
+
+  /* ---------- Barra superior ---------- */
+  .barra {
+    background: linear-gradient(180deg, #731919, #e52b2b);
+    color: #FFF;
+    padding: clamp(10px, 1.6vw, 18px) clamp(14px, 2.4vw, 34px);
+    display: flex;
+    align-items: center;
+    gap: clamp(12px, 2vw, 26px);
+  }
+  .barra .logo { height: clamp(24px, 3.4vw, 44px); display: block; }
+  .barra .marca {
+    font-weight: bold;
+    font-size: clamp(16px, 2.4vw, 32px);
+    letter-spacing: 2px;
+  }
+  .barra .titulo {
+    font-size: clamp(13px, 1.9vw, 26px);
+    font-weight: 400;
+  }
+
+  /* ---------- Contenido ---------- */
+  .contenido {
+    padding: clamp(18px, 3vw, 44px) clamp(14px, 4vw, 60px);
+  }
+  .saludo {
+    font-size: clamp(17px, 2.4vw, 30px);
+    font-weight: 400;
+    margin: 0 0 clamp(18px, 3vw, 40px);
+  }
+
+  /* ---------- Tarjetas ---------- */
+  .tarjetas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: clamp(14px, 2.2vw, 32px);
+    max-width: 1400px;
+  }
+
+  .tarjeta {
+    position: relative;
+    background: #F7EDEC;
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 5 / 4;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+    transition: transform 0.15s ease;
+  }
+  .tarjeta:hover { transform: translateY(-3px); }
+  .tarjeta:focus-visible { outline: 3px solid #731919; outline-offset: 2px; }
+
+  .tarjeta .rotulo {
+    position: relative;
+    z-index: 3;
+    font-size: clamp(15px, 1.7vw, 23px);
+    font-weight: 700;
+    color: #222;
+    padding: clamp(12px, 1.6vw, 22px) clamp(14px, 1.8vw, 26px) 0;
+  }
+
+  /* Cuarto de círculo anclado a la esquina inferior izquierda */
+  .arco {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 82%;
+    height: 78%;
+    border-top-right-radius: 100%;
+    z-index: 1;
+  }
+
+  .icono {
+    position: absolute;
+    z-index: 2;
+    left: 50%;
+    top: 52%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(40px, 5.6vw, 78px);
+    line-height: 1;
+  }
+
+  .accion {
+    position: absolute;
+    z-index: 3;
+    left: 50%;
+    bottom: clamp(10px, 1.6vw, 22px);
+    transform: translateX(-50%);
+    background: #F7EDEC;
+    border: none;
+    border-radius: 999px;
+    padding: clamp(7px, 0.9vw, 12px) clamp(16px, 2vw, 30px);
+    font-size: clamp(11px, 1.15vw, 16px);
+    font-family: inherit;
+    color: #222;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .tarjeta:hover .accion { background: #FFF; }
+
+  .t-naranja .arco { background: #F5A81C; }
+  .t-morado  .arco { background: #5B18E8; }
+  .t-rojo    .arco { background: #E8112D; }
+
+  @media (max-width: 620px) {
+    .tarjeta { aspect-ratio: 16 / 10; }
+  }
+</style>
+</head>
+<body>
+
+<div class="barra">
+  <span class="marca">DAVIVIENDA</span>
+  <span class="titulo">Sistema de declaraciones - Integración Davibank</span>
+</div>
+
+<div class="contenido">
+  <p class="saludo" id="saludo">Bienvenido/a.</p>
+
+  <div class="tarjetas">
+
+    <button class="tarjeta t-naranja" onclick="irA('generar')">
+      <div class="rotulo">Generar plantilla</div>
+      <div class="arco"></div>
+      <div class="icono">&#128220;</div>
+      <span class="accion">Ir a generar plantilla</span>
+    </button>
+
+    <button class="tarjeta t-morado" onclick="irA('cargar')">
+      <div class="rotulo">Cargar declaración</div>
+      <div class="arco"></div>
+      <div class="icono">&#9729;</div>
+      <span class="accion">Ir a cargar declaración</span>
+    </button>
+
+    <button class="tarjeta t-rojo" onclick="irA('consolidar')">
+      <div class="rotulo">Consolidar</div>
+      <div class="arco"></div>
+      <div class="icono">&#128101;</div>
+      <span class="accion">Ir a consolidar</span>
+    </button>
+
+  </div>
+</div>
+
+<script>
+  google.script.run.withSuccessHandler(function (datos) {
+    document.getElementById('saludo').textContent = 'Bienvenido/a, ' + datos.usuario + '.';
+  }).obtenerDatosIniciales();
+
+  function irA(vista) {
+    alert('Vista: ' + vista);
+  }
+</script>
+
+</body>
+</html>
