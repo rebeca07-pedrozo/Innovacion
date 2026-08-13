@@ -340,3 +340,24 @@ function aNumero_(valor) {
 function formatearMiles_(n) {
   return Number(n).toLocaleString("es-CO");
 }
+
+//DIAGNOSTICO 
+function diagnosticarRegla130() {
+  const catalogo = leerCatalogoParaValidar_("F350", "v2026");
+  const incluidos = [];
+
+  Object.keys(catalogo).forEach(function (nro) {
+    const n = parseInt(nro, 10);
+    if (catalogo[nro].tipo_valor === "RETENCION" && n <= 128) {
+      incluidos.push(n);
+    }
+  });
+
+  incluidos.sort(function (a, b) { return a - b; });
+
+  Logger.log("Renglones incluidos en la suma del 130 (" + incluidos.length + "):");
+  Logger.log(incluidos.join(", "));
+  Logger.log("");
+  Logger.log("Verificar contra la declaración de junio:");
+  Logger.log("El renglón 130 debe dar 178.908.483.000");
+}
