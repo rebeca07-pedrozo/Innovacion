@@ -1,26 +1,87 @@
-const ID_REGISTRO  = "1qXjlhZgsK-jOyGxlf0Vk65WLDK-Oypm6yXbF5SF7H5s";
-const ID_OPERACION = "1ghhI0GK8HFI1lP-WMs6Ce2pBHNH_fnSspJ9wIZWectU";
-const CARPETA_DOCUMENTACION      = "1_lX1Q2LllzrB-Z3Fjm11uJu11cY698nB";
-const CARPETA_FORMULARIOS_BASE   = "12vwQBhdo9tM_D1JS_gbfTTRVVB4DYQEW";
-const CARPETA_A_PROCESAR         = "19F-wU3TQ_G_je5eZa2hm2PvdbKj5jD05";
-const CARPETA_PROCESADOS         = "1ABGxm2C-Nc-rMrqk2gc3UoDTVOywgQNh";
-const CARPETA_PLANTILLAS         = "1pfGsUPjYDnNoBLkbuKPBdonb4vr5bR46";
-const CARPETA_CARGAS             = "1vdiBlJ-lKwdU23ySuVJSj1ABbsjGGm0y";
-const CARPETA_DAVIVIENDA         = "1AbKO7g4cCK5Se2PDQQSAcJI5QCOMJo5g";
-const CARPETA_DAVIVIENDA_OK      = "1r6qUk9ZVmFdZ1PvjsqhmVZdsxPS4Tqyj";
-const CARPETA_DAVIVIENDA_NO      = "1-mnpjuk4pVEK2efFburkGT0B1L1Twd-0";
-const CARPETA_DAVIBANK           = "1RqrIp_7EOfl0REOUl9_HM5ucHw5WriHB";
-const CARPETA_DAVIBANK_OK        = "1YPcq_sPBA3y0VDz0I1CxiJwqM2jXXd0M";
-const CARPETA_DAVIBANK_NO        = "1P5oLt10tvRgYQrvdcMT32wMAfbwD6hp7";
-const CARPETA_CONSOLIDADOS       = "1omDtwJMma8dnG5gJ6sHoEw0BmA7AnfkW";
-function carpetasDeEntidad(codEntidad) {
-  const mapa = {
-    DAVIVIENDA: { aceptadas: CARPETA_DAVIVIENDA_OK, rechazadas: CARPETA_DAVIVIENDA_NO },
-    DAVIBANK:   { aceptadas: CARPETA_DAVIBANK_OK,   rechazadas: CARPETA_DAVIBANK_NO }
-  };
+const NOMBRE_SALIDA_BASE64 = "IMAGENES_BASE64.txt";
+const TAMANO_MAXIMO_KB = 200;
+function convertirImagenesABase64() {
+  const carpeta = DriveApp.getFolderById(CARPETA_DOCUMENTACION);
+  const imagenes = listarImagenes_(carpeta);
 
-  if (!mapa[codEntidad]) {
-    throw new Error("Entidad no reconocida: " + codEntidad);
+  if (!imagenes.length) {
+    Logger.log("No se encontraron imágenes en 1_DOCUMENTACION.");
+    Logger.log("Formatos admitidos: png, jpg, jpeg, gif.");
+    return;
   }
-  return mapa[codEntidad];
+
+  const bloques = [];
+
+  imagenes.forEach(function (archivo) {
+    const nombre = archivo.getName();
+    const tamanoKB = Math.round(archivo.getSize() / 1024);
+
+    if (tamanoKB > TAMANO_MAXIMO_KB) {
+      Logger.log("OMITIDA: " + nombre + " pesa " + tamanoKB +
+                 " KB. El máximo recomendado es " + TAMANO_MAXIMO_KB + " KB.");
+      return;
+    }
+
+    const blob = archivo.getBlob();
+    const base64 = Utilities.base64Encode(blob.getBytes());
+    const dataUri = "data:" + blob.getContentType() + ";base64," + base64;
+
+    bloques.push(
+      "============================================================\n" +
+      "ARCHIVO:   " + nombre + "\n" +
+      "TIPO:      " + blob.getContentType() + "\n" +
+      "ORIGINAL:  " + tamanoKB + " KB\n" +
+      "BASE64:    " + Math.round(dataUri.length / 1024) + " KB\n" +
+      "============================================================\n\n" +
+      "USO EN HTML:\n" +
+      '<img src="' + "PEGAR_AQUI_LA_CADENA" + '" alt="' + nombre + '">\n\n' +
+      "CADENA:\n" +
+      dataUri + "\n\n"
+    );
+
+    Logger.log("Convertida: " + nombre + " (" + tamanoKB + " KB)");
+  });
+
+  if (!bloques.length) {
+    Logger.log("Ninguna imagen pudo convertirse.");
+    return;
+  }
+
+  const contenido =
+    "IMÁGENES EN BASE64 - SISTEMA DE DECLARACIONES\n" +
+    "Generado: " + new Date().toLocaleString("es-CO") + "\n" +
+    "Imágenes: " + bloques.length + "\n\n" +
+    bloques.join("\n");
+
+  const idArchivo = guardarSalida_(carpeta, contenido);
+
+  Logger.log("\nArchivo generado: " + NOMBRE_SALIDA_BASE64);
+  Logger.log("Enlace: https://drive.google.com/file/d/" + idArchivo + "/view");
+}
+function listarImagenes_(carpeta) {
+  const tiposValidos = ["image/png", "image/jpeg", "image/gif"];
+  const encontradas = [];
+  const archivos = carpeta.getFiles();
+
+  while (archivos.hasNext()) {
+    const archivo = archivos.next();
+    if (tiposValidos.indexOf(archivo.getMimeType()) >= 0) {
+      encontradas.push(archivo);
+    }
+  }
+
+  return encontradas;
+}
+function guardarSalida_(carpeta, contenido) {
+  const existentes = carpeta.getFilesByName(NOMBRE_SALIDA_BASE64);
+
+  while (existentes.hasNext()) {
+    existentes.next().setTrashed(true);
+  }
+
+  const archivo = carpeta.createFile(
+    NOMBRE_SALIDA_BASE64, contenido, MimeType.PLAIN_TEXT
+  );
+
+  return archivo.getId();
 }
