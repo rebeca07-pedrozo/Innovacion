@@ -30,8 +30,9 @@ function generarPlantilla(codFormulario, version, codEntidad, anio, periodo) {
   const idPlantilla = generarIdPlantilla_();
   const periodoTxt = formatearPeriodo_(periodo);
 
-  const nombre = idPlantilla + "_" + codFormulario + "_" + codEntidad +
-                 "_" + anio + "-" + periodoTxt;
+  const nombre = codFormulario + "_" + codEntidad + "_" + anio + "-" +
+                 periodoTxt + "_" + idPlantilla;
+
   const libro = SpreadsheetApp.create(nombre);
 
   construirMeta_(libro, idPlantilla, codFormulario, version, codEntidad, anio, periodo);
