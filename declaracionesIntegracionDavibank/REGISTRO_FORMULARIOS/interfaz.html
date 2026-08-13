@@ -6,192 +6,277 @@
   * { box-sizing: border-box; }
   body {
     font-family: Arial, Helvetica, sans-serif;
-    margin: 0; padding: 0;
-    background: #F5F5F5;
-    color: #333;
-    font-size: 14px;
+    margin: 0; padding: 0; background: #FFF; color: #333; font-size: 13px;
   }
+
   .barra {
-    background: #E1121C;
-    color: #FFF;
-    padding: 12px 20px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
+    background: #ED1C24; color: #FFF; padding: 8px 14px;
+    display: flex; align-items: center; gap: 12px;
   }
-  .barra .marca { font-weight: bold; font-size: 16px; letter-spacing: 1px; }
-  .barra .titulo { font-size: 15px; }
-  .contenido { max-width: 900px; margin: 0 auto; padding: 20px; }
-  .ruta { font-size: 13px; color: #666; margin-bottom: 16px; }
-  .ruta a { color: #E1121C; text-decoration: none; cursor: pointer; }
+  .barra img { height: 20px; }
+  .barra .marca {
+    font-weight: bold; font-size: 15px; letter-spacing: 2px;
+  }
+  .barra .titulo { font-size: 13px; }
 
-  .tarjetas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .contenido { max-width: 860px; margin: 0 auto; padding: 14px 18px; }
+  .ruta { font-size: 11px; color: #555; margin-bottom: 14px; }
+  .ruta a { color: #555; text-decoration: none; cursor: pointer; }
+  .ruta a:hover { text-decoration: underline; }
+  .tarjetas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   .tarjeta {
-    background: #FFF; border: 1px solid #DDD; border-radius: 6px;
-    padding: 20px; text-align: center; cursor: pointer;
+    border: 1px solid #CCC; border-radius: 3px; overflow: hidden;
+    background: #FFF; cursor: pointer; position: relative;
   }
-  .tarjeta:hover { border-color: #E1121C; }
-  .tarjeta h3 { margin: 0 0 8px; font-size: 15px; }
-  .tarjeta p { margin: 0; font-size: 13px; color: #666; }
-
-  .panel {
-    background: #FFF; border: 1px solid #DDD; border-radius: 6px;
-    padding: 20px; margin-bottom: 16px;
+  .tarjeta:hover { border-color: #ED1C24; }
+  .tarjeta .rotulo {
+    font-size: 11px; font-weight: bold; padding: 6px 8px 0; position: relative; z-index: 2;
   }
-  .panel h3 { margin: 0 0 14px; font-size: 15px; }
+  .tarjeta .lienzo {
+    height: 96px; position: relative; display: flex;
+    align-items: center; justify-content: center;
+  }
+  .tarjeta .arco {
+    position: absolute; left: -30%; bottom: -60px;
+    width: 160%; height: 150px; border-radius: 50% 50% 0 0;
+  }
+  .tarjeta .icono { position: relative; z-index: 2; font-size: 40px; }
+  .tarjeta .accion {
+    position: relative; z-index: 3; display: block; margin: 0 auto 8px;
+    border: none; border-radius: 2px; padding: 4px 10px;
+    font-size: 9px; color: #FFF; cursor: pointer; width: fit-content;
+  }
+  .t-naranja .arco  { background: #F5A623; }
+  .t-naranja .accion{ background: #C8821A; }
+  .t-morado  .arco  { background: #5B3FBF; }
+  .t-morado  .accion{ background: #402C87; }
+  .t-rojo    .arco  { background: #ED1C24; }
+  .t-rojo    .accion{ background: #B0151B; }
 
-  .campos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .campos { display: grid; gap: 12px; margin-bottom: 14px; }
+  .c3 { grid-template-columns: repeat(3, 1fr); }
+  .c2 { grid-template-columns: repeat(2, 1fr); }
   .campo label {
-    display: block; font-size: 13px; color: #666; margin-bottom: 5px;
+    display: block; font-size: 10px; font-weight: bold; margin-bottom: 3px;
   }
-  select, input[type=file] {
-    width: 100%; padding: 8px; border: 1px solid #CCC;
-    border-radius: 4px; font-size: 14px; background: #FFF;
+  select, input[type=text] {
+    width: 100%; padding: 4px 6px; border: 1px solid #999;
+    border-radius: 2px; font-size: 12px; background: #FFF;
+  }
+  .caja-lectura {
+    width: 100%; border: 1px solid #999; border-radius: 2px;
+    padding: 5px 7px; font-size: 12px; background: #FFF; min-height: 24px;
+  }
+  .caja-detalle { min-height: 76px; overflow-y: auto; max-height: 150px; }
+
+
+  .bloque-existe {
+    border: 1px solid #AAA; border-radius: 3px; padding: 8px;
+  }
+  .bloque-existe .rotulo-existe {
+    font-size: 10px; font-weight: bold; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .franja {
+    background: #BDD7EE; border: 1px solid #9DC3E6; border-radius: 2px;
+    padding: 8px 10px; display: flex; align-items: center;
+    justify-content: space-between; gap: 10px;
+  }
+  .franja .id { font-size: 12px; font-weight: bold; margin-bottom: 3px; }
+  .franja .meta { font-size: 9px; line-height: 1.5; }
+  .btn-descargar {
+    background: #92D050; border: 1px solid #70A83C; border-radius: 2px;
+    color: #1F3D0C; font-size: 10px; font-weight: bold;
+    padding: 5px 14px; cursor: pointer; white-space: nowrap;
   }
 
-  button {
-    background: #E1121C; color: #FFF; border: none; border-radius: 4px;
-    padding: 10px 18px; font-size: 14px; cursor: pointer;
+  .fila-carga { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+  .zona {
+    border: 1px solid #A9C48A; background: #EAF3DE; border-radius: 3px;
+    height: 108px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; cursor: pointer; text-align: center;
   }
-  button:hover { background: #B60E16; }
-  button.gris { background: #FFF; color: #333; border: 1px solid #CCC; }
-  button.gris:hover { background: #F0F0F0; }
-  button:disabled { background: #CCC; cursor: not-allowed; }
+  .zona:hover { background: #DFEDCD; }
+  .zona .nube { font-size: 40px; line-height: 1; }
+  .zona .pie { font-size: 8px; margin-top: 6px; padding: 0 10px; color: #3B5323; }
+  .botones-carga {
+    display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px;
+  }
+  .btn-borde {
+    background: #FFF; border: 1px solid #999; border-radius: 2px;
+    font-size: 9px; padding: 4px 10px; cursor: pointer;
+  }
+  .btn-borde:hover { background: #F0F0F0; }
+  .btn-borde:disabled { color: #AAA; cursor: not-allowed; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .rotulo-tabla { font-size: 10px; font-weight: bold; margin-bottom: 5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th {
-    background: #F0F0F0; text-align: left; padding: 9px;
-    border-bottom: 1px solid #DDD; font-size: 13px;
+    background: #FFF; border: 1px solid #999; padding: 5px 7px;
+    text-align: left; font-size: 10px; font-weight: bold;
   }
-  td { padding: 9px; border-bottom: 1px solid #EEE; }
+  td { border: 1px solid #999; padding: 5px 7px; height: 22px; }
 
-  .marca-estado {
-    display: inline-block; padding: 3px 10px; border-radius: 3px; font-size: 12px;
+  .btn-rojo {
+    background: #ED1C24; border: none; border-radius: 2px; color: #FFF;
+    font-size: 10px; font-weight: bold; padding: 6px 16px; cursor: pointer;
   }
-  .est-aprobado  { background: #DFF0D8; color: #2E6B2E; }
-  .est-rechazado { background: #F8D7DA; color: #8B1F26; }
-  .est-pendiente { background: #FCF3CF; color: #7D6608; }
+  .btn-rojo:hover { background: #C4151C; }
+  .btn-rojo:disabled { background: #CCC; color: #777; cursor: not-allowed; }
+  .centrado { text-align: center; margin-top: 16px; }
 
-  .aviso { padding: 14px; border-radius: 4px; margin-bottom: 14px; }
-  .aviso-info { background: #E8F0FA; border: 1px solid #B8D4F0; }
-  .aviso-ok   { background: #DFF0D8; border: 1px solid #B8DDB0; }
-  .aviso-mal  { background: #F8D7DA; border: 1px solid #F0B8BC; }
-
-  .error-item {
-    border-left: 3px solid #E1121C; padding: 8px 12px;
-    margin-bottom: 8px; background: #FAFAFA; font-size: 13px;
+  .exito { text-align: center; padding: 10px 0 20px; }
+  .exito .leyenda { font-size: 12px; margin-bottom: 18px; }
+  .exito .marca-ok {
+    width: 72px; height: 72px; border-radius: 50%; background: #00B050;
+    color: #FFF; font-size: 40px; line-height: 72px; margin: 0 auto 20px;
   }
+
+  .estado-ok  { color: #2E6B2E; font-weight: bold; }
+  .estado-mal { color: #B0151B; font-weight: bold; }
+  .estado-esp { color: #7D6608; font-weight: bold; }
+  .linea-error { padding: 2px 0; border-bottom: 1px solid #EEE; font-size: 11px; }
   .oculto { display: none; }
-  .cargando { text-align: center; padding: 30px; color: #666; }
+  .cargando { color: #777; font-size: 11px; }
 </style>
 </head>
 <body>
 
 <div class="barra">
   <span class="marca">DAVIVIENDA</span>
-  <span class="titulo">Sistema de declaraciones · Integración Davibank</span>
+  <span class="titulo">Sistema de declaraciones - Integración Davibank</span>
 </div>
 
 <div class="contenido">
 
-  <!-- ===== Inicio ===== -->
   <div id="v-inicio">
-    <p id="saludo" style="margin-bottom:18px;">Bienvenido/a.</p>
+    <p id="saludo" style="font-size:12px; margin:0 0 12px;">Bienvenido/a.</p>
 
     <div class="tarjetas">
-      <div class="tarjeta" onclick="irA('generar')">
-        <h3>Generar plantilla</h3>
-        <p>Crear o descargar la plantilla de un periodo</p>
+      <div class="tarjeta t-naranja" onclick="irA('generar')">
+        <div class="rotulo">Generar plantilla</div>
+        <div class="lienzo">
+          <div class="arco"></div>
+          <div class="icono">&#128196;</div>
+        </div>
+        <button class="accion">Ir a generar plantilla</button>
       </div>
-      <div class="tarjeta" onclick="irA('cargar')">
-        <h3>Cargar declaración</h3>
-        <p>Subir el archivo diligenciado y validarlo</p>
-      </div>
-      <div class="tarjeta" onclick="irA('consolidar')">
-        <h3>Consolidar</h3>
-        <p>Cruzar las entidades y generar el borrador</p>
-      </div>
-    </div>
 
-    <div class="panel" style="margin-top:20px;">
-      <h3>Estado del periodo</h3>
-      <table id="tabla-estado">
-        <tr><td class="cargando">Cargando…</td></tr>
-      </table>
+      <div class="tarjeta t-morado" onclick="irA('cargar')">
+        <div class="rotulo">Cargar declaración</div>
+        <div class="lienzo">
+          <div class="arco"></div>
+          <div class="icono">&#9729;</div>
+        </div>
+        <button class="accion">Ir a cargar declaración</button>
+      </div>
+
+      <div class="tarjeta t-rojo" onclick="irA('consolidar')">
+        <div class="rotulo">Consolidar</div>
+        <div class="lienzo">
+          <div class="arco"></div>
+          <div class="icono">&#128101;</div>
+        </div>
+        <button class="accion">Ir a consolidar</button>
+      </div>
     </div>
   </div>
 
-  <!-- ===== Generar plantilla ===== -->
   <div id="v-generar" class="oculto">
     <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Generar plantilla</p>
 
-    <div class="panel">
-      <div class="campos">
-        <div class="campo">
-          <label>Formulario</label>
-          <select id="g-formulario"></select>
-        </div>
-        <div class="campo">
-          <label>Entidad</label>
-          <select id="g-entidad"></select>
-        </div>
-        <div class="campo">
-          <label>Periodo</label>
-          <select id="g-periodo"></select>
-        </div>
+    <div class="campos c3">
+      <div class="campo">
+        <label>Formulario</label>
+        <select id="g-formulario" onchange="consultarPlantilla()"></select>
       </div>
-      <div style="margin-top:14px;">
-        <button onclick="consultarPlantilla()">Consultar</button>
+      <div class="campo">
+        <label>Entidad</label>
+        <select id="g-entidad" onchange="consultarPlantilla()"></select>
+      </div>
+      <div class="campo">
+        <label>Periodo</label>
+        <select id="g-periodo" onchange="consultarPlantilla()"></select>
       </div>
     </div>
 
     <div id="g-resultado"></div>
   </div>
 
-  <!-- ===== Cargar declaración ===== -->
   <div id="v-cargar" class="oculto">
     <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Cargar declaración</p>
 
-    <div class="panel">
-      <div class="campo" style="margin-bottom:14px;">
-        <label>Archivo diligenciado (.xlsx)</label>
-        <input type="file" id="c-archivo" accept=".xlsx,.xls">
-      </div>
-      <p style="font-size:13px; color:#666; margin:0 0 14px;">
-        Debe ser la plantilla generada por el sistema. El identificador se lee del archivo.
-      </p>
-      <button id="c-boton" onclick="enviarCarga()">Confirmar carga</button>
-    </div>
+    <div class="fila-carga">
+      <div>
+        <div class="campo" style="margin-bottom:10px;">
+          <label>Entidad</label>
+          <select id="c-entidad"></select>
+        </div>
 
-    <div id="c-resultado"></div>
+        <div class="campo" style="margin-bottom:10px;">
+          <label>Estado</label>
+          <div class="caja-lectura" id="c-estado">&nbsp;</div>
+        </div>
+
+        <div class="campo">
+          <label>Detalle</label>
+          <div class="caja-lectura caja-detalle" id="c-detalle">&nbsp;</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="zona" onclick="document.getElementById('c-archivo').click()">
+          <div class="nube">&#9729;</div>
+          <div class="pie">Dejar archivos formato .xlsx o .xls</div>
+        </div>
+        <input type="file" id="c-archivo" accept=".xlsx,.xls"
+               class="oculto" onchange="mostrarSeleccion()">
+        <div class="botones-carga">
+          <button class="btn-borde" id="c-confirmar" onclick="enviarCarga()">CONFIRMAR</button>
+          <button class="btn-borde" onclick="limpiarCarga()">CARGAR DE NUEVO</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- ===== Consolidar ===== -->
   <div id="v-consolidar" class="oculto">
     <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Consolidación</p>
 
-    <div class="panel">
-      <div class="campos" style="grid-template-columns: repeat(2, 1fr);">
-        <div class="campo">
-          <label>Formulario</label>
-          <select id="s-formulario"></select>
-        </div>
-        <div class="campo">
-          <label>Periodo</label>
-          <select id="s-periodo" onchange="refrescarConsolidado()"></select>
-        </div>
+    <div class="campos c2">
+      <div class="campo">
+        <label>Formulario</label>
+        <select id="s-formulario" onchange="refrescarConsolidado()"></select>
+      </div>
+      <div class="campo">
+        <label>Periodo</label>
+        <select id="s-periodo" onchange="refrescarConsolidado()"></select>
       </div>
     </div>
 
-    <div class="panel">
-      <h3>Entradas del consolidado</h3>
-      <table id="tabla-consolidado">
-        <tr><td class="cargando">Cargando…</td></tr>
-      </table>
-      <div style="margin-top:16px;">
-        <button id="s-boton" disabled>Generar consolidado</button>
-        <span id="s-motivo" style="font-size:13px; color:#666; margin-left:10px;"></span>
-      </div>
+    <div class="rotulo-tabla">Entradas del consolidado</div>
+    <table id="tabla-consolidado">
+      <tr><th>Entidad</th><th>Fecha de carga</th><th>Estado</th></tr>
+      <tr><td colspan="3" class="cargando">Cargando…</td></tr>
+    </table>
+
+    <div class="centrado">
+      <button class="btn-rojo" id="s-boton" onclick="irA('descarga')" disabled>
+        Generar consolidado
+      </button>
+      <div id="s-motivo" style="font-size:10px; color:#777; margin-top:5px;"></div>
+    </div>
+  </div>
+
+  <div id="v-descarga" class="oculto">
+    <p class="ruta">
+      <a onclick="irA('inicio')">Inicio</a> &gt;
+      <a onclick="irA('consolidar')">Consolidación</a> &gt; Confirmación descarga
+    </p>
+
+    <div class="exito">
+      <div class="leyenda">Consolidado exitosamente generado</div>
+      <div class="marca-ok">&#10004;</div>
+      <button class="btn-rojo" onclick="descargarBorrador()">Descargar borrador</button>
     </div>
   </div>
 
@@ -204,15 +289,16 @@
 
   function iniciar(datos) {
     DATOS = datos;
-    document.getElementById('saludo').textContent = 'Bienvenido/a, ' + datos.usuario;
+    document.getElementById('saludo').textContent = 'Bienvenido/a, ' + datos.usuario + '.';
 
     llenar('g-formulario', datos.formularios, 'codigo', 'nombre');
     llenar('s-formulario', datos.formularios, 'codigo', 'nombre');
     llenar('g-entidad',    datos.entidades,   'codigo', 'nombre');
+    llenar('c-entidad',    datos.entidades,   'codigo', 'nombre');
     llenar('g-periodo',    datos.periodos,    'valor',  'texto');
     llenar('s-periodo',    datos.periodos,    'valor',  'texto');
 
-    pintarEstado(datos.estado);
+    consultarPlantilla();
   }
 
   function llenar(id, lista, campoValor, campoTexto) {
@@ -227,7 +313,7 @@
   }
 
   function irA(vista) {
-    ['inicio','generar','cargar','consolidar'].forEach(function (v) {
+    ['inicio','generar','cargar','consolidar','descarga'].forEach(function (v) {
       document.getElementById('v-' + v).classList.add('oculto');
     });
     document.getElementById('v-' + vista).classList.remove('oculto');
@@ -235,67 +321,55 @@
     if (vista === 'consolidar') refrescarConsolidado();
   }
 
-  function marcaEstado(estado) {
-    var clase = estado === 'APROBADO'  ? 'est-aprobado'
-              : estado === 'RECHAZADO' ? 'est-rechazado'
-              : 'est-pendiente';
-    var texto = estado === 'APROBADO'  ? 'Aprobado'
-              : estado === 'RECHAZADO' ? 'Rechazado'
-              : 'Pendiente de carga';
-    return '<span class="marca-estado ' + clase + '">' + texto + '</span>';
-  }
-
-  function pintarEstado(datos) {
-    var html = '<tr><th>Entidad</th><th>Estado</th><th>Fecha de carga</th></tr>';
-
-    Object.keys(datos.entidades).forEach(function (cod) {
-      var e = datos.entidades[cod];
-      html += '<tr><td>' + e.entidad + '</td>' +
-              '<td>' + marcaEstado(e.estado) + '</td>' +
-              '<td>' + (e.fecha || '—') + '</td></tr>';
-    });
-
-    document.getElementById('tabla-estado').innerHTML = html;
-  }
-
-  // ----- Generar plantilla -----
-
   function consultarPlantilla() {
     var f = document.getElementById('g-formulario').value;
     var e = document.getElementById('g-entidad').value;
     var p = document.getElementById('g-periodo').value;
+    if (!f || !e || !p) return;
 
     document.getElementById('g-resultado').innerHTML =
-      '<div class="panel"><p class="cargando">Consultando…</p></div>';
+      '<p class="cargando">Consultando…</p>';
 
     google.script.run
-      .withSuccessHandler(function (r) { pintarPlantilla(r, f, e, p); })
+      .withSuccessHandler(pintarPlantilla)
       .withFailureHandler(mostrarFallo)
       .buscarPlantillaExistente(f, e, p);
   }
 
-  function pintarPlantilla(r, f, e, p) {
+  function pintarPlantilla(r) {
     var html = '';
 
     if (r.encontrada) {
-      html += '<div class="panel">' +
-              '<div class="aviso aviso-info">Ya existe una plantilla para esta combinación</div>' +
-              '<table><tr><td><strong>' + r.idPlantilla + '</strong><br>' +
-              '<span style="font-size:13px;color:#666;">Generada por ' + r.generadaPor +
-              ' · ' + r.fecha + '</span></td>' +
-              '<td style="text-align:right;">' +
-              '<button class="gris" onclick="abrir(\'' + r.url + '\')">Abrir</button> ' +
-              '<button onclick="abrir(\'' + r.urlDescarga + '\')">Descargar</button>' +
-              '</td></tr></table>' +
-              '<p style="font-size:13px;color:#666;margin:14px 0 8px;">' +
-              'Generar una nueva reemplaza la anterior para este periodo.</p>' +
-              '<button class="gris" onclick="generarNueva()">Generar nueva plantilla</button>' +
-              '</div>';
+      html =
+        '<div class="bloque-existe">' +
+          '<div class="rotulo-existe">' +
+            '<span style="font-size:11px;">&#9635;</span>' +
+            '<span>Ya existe una plantilla para esta combinación</span>' +
+          '</div>' +
+          '<div class="franja">' +
+            '<div>' +
+              '<div class="id">' + r.idPlantilla + '</div>' +
+              '<div class="meta">' +
+                'Generada por: ' + r.generadaPor + '<br>' +
+                'Fecha de creación: ' + r.fecha + '<br>' +
+                'Estado: Emitida' +
+              '</div>' +
+            '</div>' +
+            '<button class="btn-descargar" onclick="abrir(\'' + r.urlDescarga + '\')">' +
+              'DESCARGAR</button>' +
+          '</div>' +
+          '<div style="margin-top:8px; text-align:right;">' +
+            '<button class="btn-borde" onclick="generarNueva()">GENERAR NUEVA</button>' +
+          '</div>' +
+        '</div>';
     } else {
-      html += '<div class="panel">' +
-              '<p style="margin:0 0 14px;">No hay plantilla para esta combinación.</p>' +
-              '<button onclick="generarNueva()">Generar plantilla</button>' +
-              '</div>';
+      html =
+        '<div class="bloque-existe">' +
+          '<div class="rotulo-existe">' +
+            '<span>No hay plantilla para esta combinación</span>' +
+          '</div>' +
+          '<button class="btn-rojo" onclick="generarNueva()">Generar plantilla</button>' +
+        '</div>';
     }
 
     document.getElementById('g-resultado').innerHTML = html;
@@ -307,33 +381,47 @@
     var p = document.getElementById('g-periodo').value;
 
     document.getElementById('g-resultado').innerHTML =
-      '<div class="panel"><p class="cargando">Generando plantilla…</p></div>';
+      '<p class="cargando">Generando plantilla…</p>';
 
     google.script.run
-      .withSuccessHandler(function (r) { pintarPlantilla(r, f, e, p); })
+      .withSuccessHandler(pintarPlantilla)
       .withFailureHandler(mostrarFallo)
       .generarPlantillaDesdeWeb(f, e, p);
   }
 
   function abrir(url) { window.open(url, '_blank'); }
 
-  // ----- Cargar declaración -----
+  function mostrarSeleccion() {
+    var input = document.getElementById('c-archivo');
+    if (!input.files.length) return;
+
+    document.getElementById('c-estado').textContent = 'Archivo seleccionado';
+    document.getElementById('c-detalle').textContent = input.files[0].name;
+  }
+
+  function limpiarCarga() {
+    document.getElementById('c-archivo').value = '';
+    document.getElementById('c-estado').innerHTML = '&nbsp;';
+    document.getElementById('c-detalle').innerHTML = '&nbsp;';
+    document.getElementById('c-confirmar').disabled = false;
+  }
 
   function enviarCarga() {
     var input = document.getElementById('c-archivo');
 
     if (!input.files.length) {
-      document.getElementById('c-resultado').innerHTML =
-        '<div class="panel"><div class="aviso aviso-mal">Selecciona un archivo primero.</div></div>';
+      document.getElementById('c-estado').innerHTML =
+        '<span class="estado-mal">Selecciona un archivo primero</span>';
       return;
     }
 
     var archivo = input.files[0];
-    var boton = document.getElementById('c-boton');
+    var boton = document.getElementById('c-confirmar');
     boton.disabled = true;
 
-    document.getElementById('c-resultado').innerHTML =
-      '<div class="panel"><p class="cargando">Procesando y validando…</p></div>';
+    document.getElementById('c-estado').innerHTML =
+      '<span class="cargando">Procesando y validando…</span>';
+    document.getElementById('c-detalle').innerHTML = '&nbsp;';
 
     var lector = new FileReader();
 
@@ -350,35 +438,35 @@
   }
 
   function pintarCarga(r) {
-    var html = '<div class="panel">';
+    var estado = document.getElementById('c-estado');
+    var detalle = document.getElementById('c-detalle');
 
     if (!r.ok) {
-      html += '<div class="aviso aviso-mal"><strong>No se pudo procesar</strong><br>' +
-              r.mensaje + '</div>';
-    } else if (r.estado === 'APROBADO') {
-      html += '<div class="aviso aviso-ok"><strong>Aprobado</strong><br>' +
-              'Radicado ' + r.radicado + ' · ' + r.resumen + '</div>';
-    } else {
-      html += '<div class="aviso aviso-mal"><strong>Rechazado</strong><br>' +
-              r.resumen + '</div>';
-      html += '<h3>Detalle</h3>';
-      r.errores.forEach(function (e) {
-        html += '<div class="error-item">' + e.mensaje + '</div>';
-      });
+      estado.innerHTML = '<span class="estado-mal">No se pudo procesar</span>';
+      detalle.textContent = r.mensaje;
+      return;
     }
 
-    html += '<div style="margin-top:14px;">' +
-            '<button class="gris" onclick="irA(\'cargar\')">Cargar de nuevo</button></div>';
-    html += '</div>';
+    if (r.estado === 'APROBADO') {
+      estado.innerHTML = '<span class="estado-ok">Aprobado</span> · ' + r.radicado;
+      detalle.textContent = r.resumen;
+      return;
+    }
 
-    document.getElementById('c-resultado').innerHTML = html;
+    estado.innerHTML = '<span class="estado-mal">Rechazado</span> · ' +
+                       r.errores.length + ' inconsistencias';
+
+    var html = '<div style="margin-bottom:4px;">' + r.resumen + '</div>';
+    r.errores.forEach(function (e) {
+      html += '<div class="linea-error">' + e.mensaje + '</div>';
+    });
+    detalle.innerHTML = html;
   }
-
-  // ----- Consolidar -----
 
   function refrescarConsolidado() {
     var f = document.getElementById('s-formulario').value;
     var p = document.getElementById('s-periodo').value;
+    if (!f || !p) return;
 
     google.script.run
       .withSuccessHandler(pintarConsolidado)
@@ -394,15 +482,24 @@
       var e = datos.entidades[cod];
       if (e.estado !== 'APROBADO') listas = false;
 
+      var clase = e.estado === 'APROBADO'  ? 'estado-ok'
+                : e.estado === 'RECHAZADO' ? 'estado-mal' : 'estado-esp';
+      var texto = e.estado === 'APROBADO'  ? 'Aprobado'
+                : e.estado === 'RECHAZADO' ? 'Rechazado' : 'Pendiente de carga';
+
       html += '<tr><td>' + e.entidad + '</td>' +
-              '<td>' + (e.fecha || '—') + '</td>' +
-              '<td>' + marcaEstado(e.estado) + '</td></tr>';
+              '<td>' + (e.fecha || '') + '</td>' +
+              '<td class="' + clase + '">' + texto + '</td></tr>';
     });
 
     document.getElementById('tabla-consolidado').innerHTML = html;
     document.getElementById('s-boton').disabled = !listas;
     document.getElementById('s-motivo').textContent =
       listas ? '' : 'Faltan cargas aprobadas de todas las entidades';
+  }
+
+  function descargarBorrador() {
+    alert('El módulo de consolidación aún no está implementado.');
   }
 
   function mostrarFallo(e) {
