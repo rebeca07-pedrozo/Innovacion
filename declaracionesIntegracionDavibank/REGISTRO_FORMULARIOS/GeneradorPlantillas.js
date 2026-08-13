@@ -198,7 +198,6 @@ function construirFormulario_(libro, renglones, entidad, anio, periodo, idPlanti
   [2, 4, 6, 8].forEach(function (c) { hoja.setColumnWidth(c, 32); });
   [3, 5, 7, 9].forEach(function (c) { hoja.setColumnWidth(c, 130); });
 
-  hoja.setFrozenColumns(1);
 }
 function construirExterior_(libro, renglones) {
   const hoja = libro.insertSheet("EXTERIOR");
