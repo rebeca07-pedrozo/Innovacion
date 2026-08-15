@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+    color: #222;
+    background: #FFF;
+    min-height: 100vh;
+  }
+
+  /* ---------- Barra superior ---------- */
+  .barra {
+    background: linear-gradient(180deg, #731919, #e52b2b);
+    color: #FFF;
+    padding: clamp(10px, 1.6vw, 18px) clamp(14px, 2.4vw, 34px);
+    display: flex;
+    align-items: center;
+    gap: clamp(12px, 2vw, 26px);
+  }
+  .barra .logo { height: clamp(24px, 3.4vw, 44px); width: auto; display: block; }
+  .barra .titulo { font-size: clamp(13px, 1.9vw, 26px); font-weight: 400; }
+
+  /* ---------- Contenido ---------- */
+  .contenido {
+    padding: clamp(14px, 2vw, 26px) clamp(14px, 4vw, 60px);
+    max-width: 1400px;
+  }
+
+  .ruta {
+    font-size: clamp(11px, 1.15vw, 16px);
+    color: #555;
+    margin: 0 0 clamp(16px, 2.2vw, 30px);
+  }
+  .ruta a { color: #555; text-decoration: none; cursor: pointer; }
+  .ruta a:hover { color: #e52b2b; text-decoration: underline; }
+
+  /* ---------- Selectores ---------- */
+  .campos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: clamp(14px, 2.4vw, 34px);
+    margin-bottom: clamp(16px, 2.2vw, 28px);
+  }
+  .campo label {
+    display: block;
+    font-size: clamp(12px, 1.25vw, 17px);
+    font-weight: 700;
+    margin-bottom: clamp(5px, 0.6vw, 9px);
+  }
+  select {
+    width: 100%;
+    padding: clamp(7px, 0.9vw, 12px) clamp(9px, 1vw, 14px);
+    border: 2px solid #222;
+    border-radius: 3px;
+    font-size: clamp(12px, 1.2vw, 16px);
+    font-weight: 700;
+    font-family: inherit;
+    background: #FFF;
+    cursor: pointer;
+  }
+  select:focus { outline: 2px solid #e52b2b; outline-offset: 1px; }
+
+  /* ---------- Tabla ---------- */
+  .rotulo-tabla {
+    font-size: clamp(12px, 1.25vw, 17px);
+    font-weight: 700;
+    margin-bottom: clamp(8px, 1vw, 13px);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: clamp(11px, 1.15vw, 15px);
+    background: #FFF;
+  }
+  th {
+    background: #F2F2F2;
+    border: 1px solid #C9C9C9;
+    padding: clamp(8px, 1vw, 13px) clamp(10px, 1.2vw, 16px);
+    text-align: left;
+    font-size: clamp(11px, 1.1vw, 15px);
+    font-weight: 700;
+  }
+  td {
+    border: 1px solid #C9C9C9;
+    padding: clamp(8px, 1vw, 13px) clamp(10px, 1.2vw, 16px);
+    height: clamp(34px, 3.4vw, 46px);
+  }
+
+  /* ---------- Acción ---------- */
+  .centrado {
+    text-align: center;
+    margin-top: clamp(18px, 2.6vw, 36px);
+  }
+  .btn-generar {
+    background: #C41A22;
+    border: none;
+    border-radius: 3px;
+    color: #FFF;
+    font-size: clamp(13px, 1.35vw, 19px);
+    font-weight: 700;
+    font-family: inherit;
+    padding: clamp(10px, 1.2vw, 16px) clamp(28px, 4vw, 60px);
+    cursor: pointer;
+  }
+  .btn-generar:hover { background: #A31419; }
+  .btn-generar:disabled {
+    background: #D6D6D6;
+    color: #888;
+    cursor: not-allowed;
+  }
+  .motivo {
+    font-size: clamp(10px, 1.05vw, 14px);
+    color: #777;
+    margin-top: clamp(6px, 0.8vw, 10px);
+  }
+
+  /* ---------- Estados ---------- */
+  .est-ok  { color: #2E6B2E; font-weight: 700; }
+  .est-mal { color: #B0151B; font-weight: 700; }
+  .est-esp { color: #7D6608; font-weight: 700; }
+  .cargando { color: #777; }
+</style>
+</head>
+<body>
+
+<div class="barra">
+  <img class="logo" src="PEGAR_AQUI_LOGO_DAVIVIENDA" alt="Davivienda">
+  <span class="titulo">Sistema de declaraciones - Integración Davibank</span>
+</div>
+
+<div class="contenido">
+
+  <p class="ruta"><a onclick="volverInicio()">Inicio</a> &gt; Consolidación</p>
+
+  <div class="campos">
+    <div class="campo">
+      <label for="s-formulario">Formulario</label>
+      <select id="s-formulario" onchange="refrescar()"></select>
+    </div>
+    <div class="campo">
+      <label for="s-periodo">Periodo</label>
+      <select id="s-periodo" onchange="refrescar()"></select>
+    </div>
+  </div>
+
+  <div class="rotulo-tabla">Entradas del consolidado</div>
+
+  <table id="tabla">
+    <tr>
+      <th>Entidad</th>
+      <th>Fecha de carga</th>
+      <th>Estado</th>
+    </tr>
+    <tr><td colspan="3" class="cargando">Cargando…</td></tr>
+  </table>
+
+  <div class="centrado">
+    <button class="btn-generar" id="s-boton" onclick="generar()" disabled>
+      Generar consolidado
+    </button>
+    <div class="motivo" id="s-motivo"></div>
+  </div>
+
+</div>
+
+<script>
+  google.script.run
+    .withSuccessHandler(iniciar)
+    .withFailureHandler(mostrarFallo)
+    .obtenerDatosIniciales();
+
+  function iniciar(datos) {
+    llenar('s-formulario', datos.formularios, 'codigo', 'nombre');
+    llenar('s-periodo',    datos.periodos,    'valor',  'texto');
+    refrescar();
+  }
+
+  function llenar(id, lista, campoValor, campoTexto) {
+    var sel = document.getElementById(id);
+    sel.innerHTML = '';
+    lista.forEach(function (item) {
+      var op = document.createElement('option');
+      op.value = item[campoValor];
+      op.textContent = item[campoTexto];
+      sel.appendChild(op);
+    });
+  }
+
+  function refrescar() {
+    var f = document.getElementById('s-formulario').value;
+    var p = document.getElementById('s-periodo').value;
+    if (!f || !p) return;
+
+    document.getElementById('tabla').innerHTML =
+      '<tr><th>Entidad</th><th>Fecha de carga</th><th>Estado</th></tr>' +
+      '<tr><td colspan="3" class="cargando">Consultando…</td></tr>';
+
+    google.script.run
+      .withSuccessHandler(pintarTabla)
+      .withFailureHandler(mostrarFallo)
+      .obtenerEstadoPeriodo(f, p);
+  }
+
+  function pintarTabla(datos) {
+    var html = '<tr><th>Entidad</th><th>Fecha de carga</th><th>Estado</th></tr>';
+    var completo = true;
+
+    Object.keys(datos.entidades).forEach(function (cod) {
+      var e = datos.entidades[cod];
+      if (e.estado !== 'APROBADO') completo = false;
+
+      var clase = e.estado === 'APROBADO'  ? 'est-ok'
+                : e.estado === 'RECHAZADO' ? 'est-mal'
+                : 'est-esp';
+      var texto = e.estado === 'APROBADO'  ? 'Aprobado'
+                : e.estado === 'RECHAZADO' ? 'Rechazado'
+                : 'Pendiente de carga';
+
+      html += '<tr>' +
+                '<td>' + e.entidad + '</td>' +
+                '<td>' + (e.fecha || '') + '</td>' +
+                '<td class="' + clase + '">' + texto + '</td>' +
+              '</tr>';
+    });
+
+    document.getElementById('tabla').innerHTML = html;
+
+    var boton = document.getElementById('s-boton');
+    boton.disabled = !completo;
+    document.getElementById('s-motivo').textContent =
+      completo ? '' : 'Faltan cargas aprobadas de todas las entidades';
+  }
+
+  function generar() {
+    alert('El módulo de consolidación aún no está implementado.');
+  }
+
+  function volverInicio() {
+    alert('Volver a inicio (pendiente de conectar)');
+  }
+
+  function mostrarFallo(e) {
+    document.getElementById('tabla').innerHTML =
+      '<tr><th>Entidad</th><th>Fecha de carga</th><th>Estado</th></tr>' +
+      '<tr><td colspan="3" class="est-mal">' + e.message + '</td></tr>';
+  }
+</script>
+
+</body>
+</html>

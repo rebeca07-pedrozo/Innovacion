@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+    color: #222;
+    background: #FFF;
+    min-height: 100vh;
+  }
+
+  /* ---------- Barra superior ---------- */
+  .barra {
+    background: linear-gradient(180deg, #731919, #e52b2b);
+    color: #FFF;
+    padding: clamp(10px, 1.6vw, 18px) clamp(14px, 2.4vw, 34px);
+    display: flex;
+    align-items: center;
+    gap: clamp(12px, 2vw, 26px);
+  }
+  .barra .logo { height: clamp(24px, 3.4vw, 44px); width: auto; display: block; }
+  .barra .titulo { font-size: clamp(13px, 1.9vw, 26px); font-weight: 400; }
+
+  /* ---------- Contenido ---------- */
+  .contenido {
+    padding: clamp(14px, 2vw, 26px) clamp(14px, 4vw, 60px);
+    max-width: 1400px;
+  }
+
+  .ruta {
+    font-size: clamp(11px, 1.15vw, 16px);
+    color: #555;
+    margin: 0 0 clamp(20px, 3vw, 40px);
+  }
+  .ruta a { color: #555; text-decoration: none; cursor: pointer; }
+  .ruta a:hover { color: #e52b2b; text-decoration: underline; }
+
+  /* ---------- Confirmación ---------- */
+  .confirmacion {
+    text-align: center;
+    padding-bottom: clamp(20px, 3vw, 44px);
+  }
+
+  .leyenda {
+    font-size: clamp(14px, 1.5vw, 21px);
+    margin: 0 0 clamp(18px, 2.6vw, 36px);
+  }
+
+  .marca-ok {
+    width: clamp(110px, 13vw, 175px);
+    height: clamp(110px, 13vw, 175px);
+    border-radius: 50%;
+    background: #00B22D;
+    margin: 0 auto clamp(22px, 3.2vw, 46px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .marca-ok img {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .marca-ok .palomita {
+    color: #FFF;
+    font-size: clamp(56px, 6.6vw, 90px);
+    line-height: 1;
+  }
+
+  .btn-descargar {
+    background: #C41A22;
+    border: none;
+    border-radius: 3px;
+    color: #FFF;
+    font-size: clamp(13px, 1.35vw, 19px);
+    font-weight: 700;
+    font-family: inherit;
+    padding: clamp(10px, 1.2vw, 16px) clamp(28px, 4vw, 60px);
+    cursor: pointer;
+  }
+  .btn-descargar:hover { background: #A31419; }
+
+  .detalle {
+    font-size: clamp(10px, 1.05vw, 14px);
+    color: #777;
+    margin-top: clamp(12px, 1.6vw, 20px);
+    line-height: 1.6;
+  }
+
+  .nota {
+    font-size: clamp(9px, 0.95vw, 12px);
+    color: #999;
+    margin-top: clamp(20px, 3vw, 40px);
+    border-top: 1px solid #EEE;
+    padding-top: clamp(10px, 1.3vw, 16px);
+  }
+</style>
+</head>
+<body>
+
+<div class="barra">
+  <img class="logo" src="PEGAR_AQUI_LOGO_DAVIVIENDA" alt="Davivienda">
+  <span class="titulo">Sistema de declaraciones - Integración Davibank</span>
+</div>
+
+<div class="contenido">
+
+  <p class="ruta">
+    <a onclick="volverInicio()">Inicio</a> &gt;
+    <a onclick="volverConsolidacion()">Consolidación</a> &gt;
+    Confirmación descarga
+  </p>
+
+  <div class="confirmacion">
+
+    <p class="leyenda">Consolidado exitosamente generado</p>
+
+   <div class="marca-ok" style="background: transparent;">
+      <img src="PEGAR_AQUI_CHECK_VERDE" alt="">
+    </div>
+    
+    <button class="btn-descargar" onclick="descargar()">Descargar borrador</button>
+
+    <div class="detalle" id="d-detalle"></div>
+
+    <p class="nota">
+      Documento de trabajo interno. No constituye declaración tributaria.
+    </p>
+
+  </div>
+
+</div>
+
+<script>
+  // El identificador del consolidado llega desde la pantalla anterior
+  var CONSOLIDADO = {
+    id: '',
+    formulario: '',
+    periodo: '',
+    url: ''
+  };
+
+  function mostrarDetalle() {
+    if (!CONSOLIDADO.id) return;
+
+    document.getElementById('d-detalle').innerHTML =
+      CONSOLIDADO.id + '<br>' +
+      CONSOLIDADO.formulario + ' · periodo ' + CONSOLIDADO.periodo;
+  }
+
+  function descargar() {
+    if (!CONSOLIDADO.url) {
+      alert('El módulo de consolidación aún no está implementado.');
+      return;
+    }
+    window.open(CONSOLIDADO.url, '_blank');
+  }
+
+  function volverInicio() {
+    alert('Volver a inicio (pendiente de conectar)');
+  }
+
+  function volverConsolidacion() {
+    alert('Volver a consolidación (pendiente de conectar)');
+  }
+
+  mostrarDetalle();
+</script>
+
+</body>
+</html>
