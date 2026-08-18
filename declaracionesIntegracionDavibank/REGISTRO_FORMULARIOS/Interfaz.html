@@ -157,14 +157,6 @@
   .panel .campo { margin-bottom: 0; }
 
   /* ==================== Vista: generar ==================== */
-  .rotulo-resultado {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: clamp(12px, 1.2vw, 16px);
-    font-weight: 700;
-    margin-bottom: clamp(10px, 1.3vw, 16px);
-  }
   .franja {
     background: #A8C4DE;
     border-radius: 3px;
@@ -199,26 +191,6 @@
     white-space: nowrap;
   }
   .btn-descargar:hover { background: #B0D48C; }
-  .pie-acciones {
-    margin-top: clamp(10px, 1.3vw, 16px);
-    display: flex;
-    justify-content: flex-end;
-  }
-  .btn-claro {
-    background: #FFF;
-    border: 1px solid #999;
-    border-radius: 3px;
-    color: #333;
-    font-size: clamp(10px, 1vw, 14px);
-    font-family: inherit;
-    padding: clamp(6px, 0.8vw, 10px) clamp(12px, 1.6vw, 22px);
-    cursor: pointer;
-  }
-  .btn-claro:hover { background: #F0F0F0; }
-  .aviso-vacio {
-    font-size: clamp(12px, 1.2vw, 16px);
-    margin: 0 0 clamp(12px, 1.6vw, 20px);
-  }
 
   /* ==================== Vista: cargar ==================== */
   .columnas {
@@ -442,16 +414,23 @@
     <div class="campos">
       <div class="campo">
         <label for="gen-formulario">Formulario</label>
-        <select id="gen-formulario" onchange="genConsultar()"></select>
+        <select id="gen-formulario"
+                onchange="recargarPeriodos('gen-formulario','gen-periodo')"></select>
       </div>
       <div class="campo">
         <label for="gen-entidad">Entidad</label>
-        <select id="gen-entidad" onchange="genConsultar()"></select>
+        <select id="gen-entidad"></select>
       </div>
       <div class="campo">
         <label for="gen-periodo">Periodo</label>
-        <select id="gen-periodo" onchange="genConsultar()"></select>
+        <select id="gen-periodo"></select>
       </div>
+    </div>
+
+    <div style="margin-top: 16px; text-align: center;">
+      <button class="btn-rojo" id="gen-boton" onclick="genDescargar()">
+        Descargar plantilla
+      </button>
     </div>
   </div>
 
@@ -507,7 +486,8 @@
   <div class="campos campos-dos" style="margin-bottom: 20px;">
     <div class="campo">
       <label for="con-formulario">Formulario</label>
-      <select id="con-formulario" onchange="conRefrescar()"></select>
+      <select id="con-formulario"
+              onchange="recargarPeriodos('con-formulario','con-periodo', conRefrescar)"></select>
     </div>
     <div class="campo">
       <label for="con-periodo">Periodo</label>
@@ -596,7 +576,6 @@
     document.getElementById('v-' + vista).classList.remove('oculto');
     window.scrollTo(0, 0);
 
-    if (vista === 'generar')    genConsultar();
     if (vista === 'consolidar') conRefrescar();
   }
 
@@ -633,32 +612,49 @@
     });
   }
 
+  /**
+   * Recarga los periodos según la periodicidad del formulario elegido.
+   */
+  function recargarPeriodos(idFormulario, idPeriodo, alTerminar) {
+    var cod = document.getElementById(idFormulario).value;
+    if (!cod) return;
+
+    google.script.run
+      .withSuccessHandler(function (periodos) {
+        llenarSelector(idPeriodo, periodos, 'valor', 'texto');
+        if (alTerminar) alTerminar();
+      })
+      .obtenerPeriodos(cod);
+  }
+
   /* ==================== Generar plantilla ==================== */
 
-  function genConsultar() {
+  function genDescargar() {
     var f = document.getElementById('gen-formulario').value;
     var e = document.getElementById('gen-entidad').value;
     var p = document.getElementById('gen-periodo').value;
-    if (!f || !e || !p) return;
+
+    if (!f || !e || !p) {
+      document.getElementById('gen-resultado').innerHTML =
+        '<div class="panel"><p class="est-mal">Selecciona formulario, entidad y periodo.</p></div>';
+      return;
+    }
+
+    var boton = document.getElementById('gen-boton');
+    boton.disabled = true;
 
     document.getElementById('gen-resultado').innerHTML =
-      '<div class="panel"><p class="cargando">Consultando…</p></div>';
+      '<div class="panel"><p class="cargando">Preparando la plantilla…</p></div>';
 
     google.script.run
-      .withSuccessHandler(genPintar)
-      .withFailureHandler(genFallo)
-      .buscarPlantillaExistente(f, e, p);
+      .withSuccessHandler(function (r) { genPintar(r); boton.disabled = false; })
+      .withFailureHandler(function (e) { genFallo(e); boton.disabled = false; })
+      .obtenerPlantilla(f, e, p);
   }
 
   function genPintar(r) {
-    var html = '<div class="panel">';
-
-    if (r.encontrada) {
-      html +=
-        '<div class="rotulo-resultado">' +
-          '<span>&#128203;</span>' +
-          '<span>Ya existe una plantilla para esta combinación</span>' +
-        '</div>' +
+    document.getElementById('gen-resultado').innerHTML =
+      '<div class="panel">' +
         '<div class="franja">' +
           '<div>' +
             '<div class="identificador">' + r.idPlantilla + '</div>' +
@@ -670,31 +666,10 @@
           '<button class="btn-descargar" onclick="abrirEnlace(\'' + r.urlDescarga + '\')">' +
             'DESCARGAR</button>' +
         '</div>' +
-        '<div class="pie-acciones">' +
-          '<button class="btn-claro" onclick="genNueva()">Generar nueva</button>' +
-        '</div>';
-    } else {
-      html +=
-        '<p class="aviso-vacio">No hay una plantilla generada para esta combinación.</p>' +
-        '<button class="btn-rojo" onclick="genNueva()">Generar plantilla</button>';
-    }
+      '</div>';
 
-    html += '</div>';
-    document.getElementById('gen-resultado').innerHTML = html;
-  }
-
-  function genNueva() {
-    var f = document.getElementById('gen-formulario').value;
-    var e = document.getElementById('gen-entidad').value;
-    var p = document.getElementById('gen-periodo').value;
-
-    document.getElementById('gen-resultado').innerHTML =
-      '<div class="panel"><p class="cargando">Generando plantilla…</p></div>';
-
-    google.script.run
-      .withSuccessHandler(genPintar)
-      .withFailureHandler(genFallo)
-      .generarPlantillaDesdeWeb(f, e, p);
+    // La descarga arranca sola; el botón queda para repetirla
+    abrirEnlace(r.urlDescarga);
   }
 
   function genFallo(e) {
