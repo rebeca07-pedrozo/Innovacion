@@ -121,17 +121,18 @@
   /* ==================== Controles compartidos ==================== */
   .campos {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: clamp(12px, 1.8vw, 26px);
+    gap: clamp(10px, 1.4vw, 20px);
   }
-  .campos-dos {
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: clamp(14px, 2.4vw, 34px);
+  .campos-cinco {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
-  .campo { margin-bottom: clamp(12px, 1.6vw, 20px); }
+  .campos-cuatro {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  }
+  .campo { margin-bottom: 0; }
   .campo label {
     display: block;
-    font-size: clamp(12px, 1.25vw, 17px);
+    font-size: clamp(11px, 1.15vw, 15px);
     font-weight: 700;
     margin-bottom: clamp(5px, 0.6vw, 9px);
   }
@@ -148,13 +149,23 @@
   }
   select:focus { outline: 2px solid #e52b2b; outline-offset: 1px; }
 
+  .caja-fija {
+    width: 100%;
+    padding: clamp(7px, 0.9vw, 12px) clamp(9px, 1vw, 14px);
+    border: 2px solid #CCC;
+    border-radius: 3px;
+    font-size: clamp(12px, 1.2vw, 16px);
+    font-weight: 700;
+    background: #F2F2F2;
+    color: #555;
+  }
+
   .panel {
     background: #F7EDEC;
     border-radius: 4px;
     padding: clamp(12px, 1.6vw, 22px) clamp(14px, 2vw, 26px);
     margin-bottom: clamp(14px, 2vw, 26px);
   }
-  .panel .campo { margin-bottom: 0; }
 
   /* ==================== Vista: generar ==================== */
   .franja {
@@ -200,6 +211,7 @@
     align-items: start;
   }
   .columnas select { max-width: 340px; }
+  .columnas .campo { margin-bottom: clamp(12px, 1.6vw, 20px); }
 
   .caja {
     width: 100%;
@@ -411,23 +423,30 @@
   <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Generar plantilla</p>
 
   <div class="panel">
-    <div class="campos">
+    <div class="campos campos-cinco">
       <div class="campo">
         <label for="gen-formulario">Formulario</label>
-        <select id="gen-formulario"
-                onchange="recargarPeriodos('gen-formulario','gen-periodo')"></select>
+        <select id="gen-formulario" onchange="genCambioFormulario()"></select>
       </div>
       <div class="campo">
         <label for="gen-entidad">Entidad</label>
         <select id="gen-entidad"></select>
       </div>
       <div class="campo">
-        <label for="gen-periodo">Periodo</label>
+        <label for="gen-anio">Año</label>
+        <select id="gen-anio"></select>
+      </div>
+      <div class="campo">
+        <label>Periodicidad</label>
+        <div class="caja-fija" id="gen-periodicidad">—</div>
+      </div>
+      <div class="campo">
+        <label for="gen-periodo" id="gen-rotulo-periodo">Periodo</label>
         <select id="gen-periodo"></select>
       </div>
     </div>
 
-    <div style="margin-top: 16px; text-align: center;">
+    <div style="margin-top: 18px; text-align: center;">
       <button class="btn-rojo" id="gen-boton" onclick="genDescargar()">
         Descargar plantilla
       </button>
@@ -483,14 +502,21 @@
 
   <p class="ruta"><a onclick="irA('inicio')">Inicio</a> &gt; Consolidación</p>
 
-  <div class="campos campos-dos" style="margin-bottom: 20px;">
+  <div class="campos campos-cuatro" style="margin-bottom: 22px;">
     <div class="campo">
       <label for="con-formulario">Formulario</label>
-      <select id="con-formulario"
-              onchange="recargarPeriodos('con-formulario','con-periodo', conRefrescar)"></select>
+      <select id="con-formulario" onchange="conCambioFormulario()"></select>
     </div>
     <div class="campo">
-      <label for="con-periodo">Periodo</label>
+      <label for="con-anio">Año</label>
+      <select id="con-anio" onchange="conRefrescar()"></select>
+    </div>
+    <div class="campo">
+      <label>Periodicidad</label>
+      <div class="caja-fija" id="con-periodicidad">—</div>
+    </div>
+    <div class="campo">
+      <label for="con-periodo" id="con-rotulo-periodo">Periodo</label>
       <select id="con-periodo" onchange="conRefrescar()"></select>
     </div>
   </div>
@@ -540,8 +566,7 @@
 
 <script>
   /* ==================== Imágenes ====================
-     Pegar aquí las cadenas base64 una sola vez.
-     Se inyectan automáticamente en todas las vistas. */
+     Pegar aquí las cadenas base64 una sola vez. */
 
   var LOGO             = 'PEGAR_AQUI_LOGO_DAVIVIENDA';
   var ICONO_GENERAR    = 'PEGAR_AQUI_ICONO_GENERAR';
@@ -593,12 +618,15 @@
 
     llenarSelector('gen-formulario', datos.formularios, 'codigo', 'nombre');
     llenarSelector('gen-entidad',    datos.entidades,   'codigo', 'nombre');
-    llenarSelector('gen-periodo',    datos.periodos,    'valor',  'texto');
+    llenarSelector('gen-anio',       datos.anios,       'valor',  'texto');
 
     llenarSelector('car-entidad',    datos.entidades,   'codigo', 'nombre');
 
     llenarSelector('con-formulario', datos.formularios, 'codigo', 'nombre');
-    llenarSelector('con-periodo',    datos.periodos,    'valor',  'texto');
+    llenarSelector('con-anio',       datos.anios,       'valor',  'texto');
+
+    aplicarDetalle('gen', datos.detalle);
+    aplicarDetalle('con', datos.detalle);
   }
 
   function llenarSelector(id, lista, campoValor, campoTexto) {
@@ -613,18 +641,30 @@
   }
 
   /**
-   * Recarga los periodos según la periodicidad del formulario elegido.
+   * Aplica la periodicidad de un formulario a los campos de una vista.
    */
-  function recargarPeriodos(idFormulario, idPeriodo, alTerminar) {
-    var cod = document.getElementById(idFormulario).value;
+  function aplicarDetalle(prefijo, detalle) {
+    document.getElementById(prefijo + '-periodicidad').textContent = detalle.periodicidad;
+    document.getElementById(prefijo + '-rotulo-periodo').textContent = detalle.rotulo;
+    llenarSelector(prefijo + '-periodo', detalle.periodos, 'valor', 'texto');
+  }
+
+  function genCambioFormulario() {
+    var cod = document.getElementById('gen-formulario').value;
     if (!cod) return;
 
     google.script.run
-      .withSuccessHandler(function (periodos) {
-        llenarSelector(idPeriodo, periodos, 'valor', 'texto');
-        if (alTerminar) alTerminar();
-      })
-      .obtenerPeriodos(cod);
+      .withSuccessHandler(function (d) { aplicarDetalle('gen', d); })
+      .detallePeriodicidad(cod);
+  }
+
+  function conCambioFormulario() {
+    var cod = document.getElementById('con-formulario').value;
+    if (!cod) return;
+
+    google.script.run
+      .withSuccessHandler(function (d) { aplicarDetalle('con', d); conRefrescar(); })
+      .detallePeriodicidad(cod);
   }
 
   /* ==================== Generar plantilla ==================== */
@@ -632,11 +672,12 @@
   function genDescargar() {
     var f = document.getElementById('gen-formulario').value;
     var e = document.getElementById('gen-entidad').value;
+    var a = document.getElementById('gen-anio').value;
     var p = document.getElementById('gen-periodo').value;
 
-    if (!f || !e || !p) {
+    if (!f || !e || !a || !p) {
       document.getElementById('gen-resultado').innerHTML =
-        '<div class="panel"><p class="est-mal">Selecciona formulario, entidad y periodo.</p></div>';
+        '<div class="panel"><p class="est-mal">Completa todos los campos.</p></div>';
       return;
     }
 
@@ -648,8 +689,8 @@
 
     google.script.run
       .withSuccessHandler(function (r) { genPintar(r); boton.disabled = false; })
-      .withFailureHandler(function (e) { genFallo(e); boton.disabled = false; })
-      .obtenerPlantilla(f, e, p);
+      .withFailureHandler(function (er) { genFallo(er); boton.disabled = false; })
+      .obtenerPlantilla(f, e, a + '-' + p);
   }
 
   function genPintar(r) {
@@ -801,8 +842,9 @@
 
   function conRefrescar() {
     var f = document.getElementById('con-formulario').value;
+    var a = document.getElementById('con-anio').value;
     var p = document.getElementById('con-periodo').value;
-    if (!f || !p) return;
+    if (!f || !a || !p) return;
 
     document.getElementById('con-tabla').innerHTML =
       '<tr><th>Entidad</th><th>Fecha de carga</th><th>Estado</th></tr>' +
@@ -811,7 +853,7 @@
     google.script.run
       .withSuccessHandler(conPintar)
       .withFailureHandler(conFallo)
-      .obtenerEstadoPeriodo(f, p);
+      .obtenerEstadoPeriodo(f, a + '-' + p);
   }
 
   function conPintar(datos) {
