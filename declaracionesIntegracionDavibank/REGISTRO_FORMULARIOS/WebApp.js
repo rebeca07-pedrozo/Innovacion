@@ -76,9 +76,9 @@ function buscarPlantillaExistente(codFormulario, codEntidad, periodoTxt) {
 function generarPlantillaDesdeWeb(codFormulario, codEntidad, periodoTxt) {
   const anio    = parseInt(periodoTxt.split("-")[0], 10);
   const periodo = parseInt(periodoTxt.split("-")[1], 10);
-  const version = versionVigente_(codFormulario);
 
-  const r = generarPlantilla(codFormulario, version, codEntidad, anio, periodo);
+  // La disposición la resuelve el generador leyendo FORMULARIOS
+  const r = generarPlantilla(codFormulario, codEntidad, anio, periodo);
 
   return {
     encontrada:  true,
