@@ -338,10 +338,6 @@ function leerEntidad_(codEntidad) {
   }
   throw new Error("Entidad no encontrada: " + codEntidad);
 }
-
-
-// ---------- Metadatos y registro ----------
-
 function construirMeta_(libro, idPlantilla, def, codEntidad, anio, periodo) {
   const hoja = libro.insertSheet("_META");
 
@@ -382,12 +378,6 @@ function numeroDeGrupo_(clave) {
   const n = parseInt(partes[partes.length - 1], 10);
   return isNaN(n) ? 999 : n;
 }
-
-
-/**
- * Comparte con el dominio las plantillas ya emitidas.
- * Ejecutar si alguna quedó sin permisos de descarga.
- */
 function compartirPlantillasExistentes() {
   const datos = SpreadsheetApp.openById(ID_OPERACION)
                   .getSheetByName("PLANTILLAS_EMITIDAS").getDataRange().getValues();
