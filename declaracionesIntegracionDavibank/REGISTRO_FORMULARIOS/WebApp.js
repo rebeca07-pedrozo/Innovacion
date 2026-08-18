@@ -78,7 +78,10 @@ function generarPlantillaDesdeWeb(codFormulario, codEntidad, periodoTxt) {
   const periodo = parseInt(periodoTxt.split("-")[1], 10);
   const version = versionVigente_(codFormulario);
 
-  const r = generarPlantilla(codFormulario, version, codEntidad, anio, periodo);
+  // El 350 usa disposición de matriz; los demás, lista vertical
+  const r = (codFormulario === "F350")
+    ? generarPlantilla(codFormulario, version, codEntidad, anio, periodo)
+    : generarPlantillaLista(codFormulario, version, codEntidad, anio, periodo);
 
   return {
     encontrada:  true,
