@@ -1,38 +1,44 @@
-const RENGLONES_F350 = (function () {
-  const lista = [];
-  for (let i = 29; i <= 138; i++) lista.push(i);
-  for (let i = 148; i <= 155; i++) lista.push(i);
-  return lista;
-})();
+/**
+ * ============================================================
+ * PROMOCIÓN DEL CATÁLOGO
+ *
+ * Copia los renglones de STAGING_EXTRACCION a RENGLONES.
+ * El formulario y sus renglones esperados se leen de los
+ * propios datos y de la hoja FORMULARIOS.
+ *
+ * Ejecutar en orden:
+ *   1. verificarStaging()
+ *   2. promoverCatalogo()
+ * ============================================================
+ */
 
-
-//Primera
 function verificarStaging() {
   const r = analizarStaging_();
 
   Logger.log("--- VERIFICACIÓN DE STAGING ---");
-  Logger.log("Renglones encontrados: " + r.total + " de " + RENGLONES_F350.length);
-  Logger.log("Faltantes: "    + (r.faltantes.length    ? r.faltantes.join(", ")    : "ninguno"));
-  Logger.log("Sobrantes: "    + (r.sobrantes.length    ? r.sobrantes.join(", ")    : "ninguno"));
-  Logger.log("Duplicados: "   + (r.duplicados.length   ? r.duplicados.join(", ")   : "ninguno"));
-  Logger.log("Sin etiqueta: " + (r.sinEtiqueta.length  ? r.sinEtiqueta.join(", ")  : "ninguno"));
+  Logger.log("Formulario: " + r.codFormulario + " " + r.version);
+  Logger.log("Renglones encontrados: " + r.total + " de " + r.esperados);
+  Logger.log("Faltantes: "    + (r.faltantes.length   ? r.faltantes.join(", ")   : "ninguno"));
+  Logger.log("Sobrantes: "    + (r.sobrantes.length   ? r.sobrantes.join(", ")   : "ninguno"));
+  Logger.log("Duplicados: "   + (r.duplicados.length  ? r.duplicados.join(", ")  : "ninguno"));
+  Logger.log("Sin etiqueta: " + (r.sinEtiqueta.length ? r.sinEtiqueta.join(", ") : "ninguno"));
 
   Logger.log(r.valido
     ? "\nCatálogo íntegro. Se puede promover."
     : "\nHay inconsistencias. Corregir en STAGING_EXTRACCION antes de promover.");
 }
 
-// Segunda
+
 function promoverCatalogo() {
   const r = analizarStaging_();
 
   if (!r.valido) {
-    throw new Error("El staging tiene inconsistencias. Ejecutar verificarStaging() para ver el detalle.");
+    throw new Error("El staging tiene inconsistencias. Ejecutar verificarStaging().");
   }
 
   const hoja = SpreadsheetApp.openById(ID_REGISTRO).getSheetByName("RENGLONES");
 
-  eliminarVersion_(hoja, "F350", "v2026");
+  eliminarVersion_(hoja, r.codFormulario, r.version);
 
   const filas = r.filas.map(function (f) {
     return [
@@ -44,18 +50,15 @@ function promoverCatalogo() {
   hoja.getRange(hoja.getLastRow() + 1, 1, filas.length, filas[0].length)
       .setValues(filas);
 
-  Logger.log("Renglones promovidos: " + filas.length);
+  Logger.log("Renglones promovidos: " + filas.length + " (" + r.codFormulario + ")");
 }
+
 
 function analizarStaging_() {
   const hoja = SpreadsheetApp.openById(ID_REGISTRO).getSheetByName("STAGING_EXTRACCION");
-
-  if (!hoja) {
-    throw new Error("No se encontró la hoja STAGING_EXTRACCION.");
-  }
+  if (!hoja) throw new Error("No se encontró la hoja STAGING_EXTRACCION.");
 
   const datos = hoja.getDataRange().getValues();
-
   const col = {};
   datos[0].forEach(function (nombre, i) { col[String(nombre).trim()] = i; });
 
@@ -71,10 +74,17 @@ function analizarStaging_() {
   const vistos = [];
   const duplicados = [];
   const sinEtiqueta = [];
+  let codFormulario = "";
+  let version = "";
 
   for (let i = 1; i < datos.length; i++) {
     const nro = parseInt(datos[i][col.nro_renglon], 10);
     if (isNaN(nro)) continue;
+
+    if (!codFormulario) {
+      codFormulario = String(datos[i][col.cod_formulario]).trim();
+      version = String(datos[i][col.version]).trim();
+    }
 
     if (vistos.indexOf(nro) >= 0) duplicados.push(nro);
     else vistos.push(nro);
@@ -96,12 +106,19 @@ function analizarStaging_() {
     });
   }
 
-  const faltantes = RENGLONES_F350.filter(function (n) { return vistos.indexOf(n) < 0; });
-  const sobrantes = vistos.filter(function (n) { return RENGLONES_F350.indexOf(n) < 0; });
+  // Los renglones esperados se leen de la hoja FORMULARIOS
+  const definicion = definicionFormulario(codFormulario);
+  const esperados = definicion.esperados;
+
+  const faltantes = esperados.filter(function (n) { return vistos.indexOf(n) < 0; });
+  const sobrantes = vistos.filter(function (n) { return esperados.indexOf(n) < 0; });
 
   return {
+    codFormulario: codFormulario,
+    version: version,
     filas: filas,
     total: filas.length,
+    esperados: esperados.length,
     faltantes: faltantes,
     sobrantes: sobrantes,
     duplicados: duplicados,
@@ -111,11 +128,13 @@ function analizarStaging_() {
   };
 }
 
+
 function eliminarVersion_(hoja, codFormulario, version) {
   if (hoja.getLastRow() <= 1) return;
 
   const datos = hoja.getDataRange().getValues();
 
+  // Se recorre de abajo hacia arriba para que los índices no se desplacen
   for (let i = datos.length - 1; i >= 1; i--) {
     if (datos[i][0] === codFormulario && datos[i][1] === version) {
       hoja.deleteRow(i + 1);
