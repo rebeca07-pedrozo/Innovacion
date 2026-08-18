@@ -46,7 +46,6 @@ const ENTIDADES_INICIALES = [
   ["DAVIBANK",   "DAVIBANK",              "",          "",  "",   "",     "SI"]
 ];
 
-//Funcion principal
 function instalarHojas() {
   const libroRegistro  = SpreadsheetApp.openById(ID_REGISTRO);
   const libroOperacion = SpreadsheetApp.openById(ID_OPERACION);
