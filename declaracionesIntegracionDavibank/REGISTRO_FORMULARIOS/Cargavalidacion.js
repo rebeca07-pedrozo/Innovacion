@@ -297,7 +297,6 @@ function validarTotales350_(catalogo, valores) {
   return errores;
 }
 
-
 /**
  * Aritmética interna del formulario 300.
  */
@@ -332,9 +331,13 @@ function validarTotales300_(valores) {
   comparar_(errores, 81, num(77) + num(78) + num(79) + num(80), num(81),
             "Total impuestos descontables");
 
+  comparar_(errores, 82, num(67) - num(81), num(82),
+            "Saldo a pagar por el período fiscal");
+
+  comparar_(errores, 88, num(86) + num(87), num(88), "Total saldo a pagar");
+
   return errores;
 }
-
 
 function comparar_(errores, renglon, esperado, encontrado, etiqueta) {
   if (Math.abs(esperado - encontrado) < 1) return;
