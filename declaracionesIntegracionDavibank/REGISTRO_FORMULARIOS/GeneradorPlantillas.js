@@ -562,3 +562,181 @@ function titularSeccion300_(seccion) {
   };
   return titulos[seccion] || seccion;
 }
+
+
+/**
+ * ============================================================
+ * GENERADOR EN MODO LISTA
+ * Para formularios de estructura vertical, como el 300.
+ * ============================================================
+ */
+
+/**
+ * Punto de entrada para el formulario 300.
+ */
+function generarPlantilla300() {
+  const r = generarPlantillaLista("F300", "v2026", "DAVIVIENDA", 2026, 3);
+  Logger.log("Plantilla: " + r.idPlantilla);
+  Logger.log("Enlace: " + r.url);
+}
+
+
+/**
+ * Genera una plantilla de estructura vertical.
+ */
+function generarPlantillaLista(codFormulario, version, codEntidad, anio, periodo) {
+  const renglones = leerRenglones_(codFormulario, version);
+  if (!renglones.length) {
+    throw new Error("El catálogo no tiene renglones para " + codFormulario + " " + version);
+  }
+
+  const entidad = leerEntidad_(codEntidad);
+  const idPlantilla = generarIdPlantilla_();
+  const periodoTxt = formatearPeriodo_(periodo);
+
+  const nombre = codFormulario + "_" + codEntidad + "_" + anio + "-" +
+                 periodoTxt + "_" + idPlantilla;
+  const libro = SpreadsheetApp.create(nombre);
+
+  construirMeta_(libro, idPlantilla, codFormulario, version, codEntidad, anio, periodo);
+  construirListaVertical_(libro, renglones, entidad, anio, periodo,
+                          idPlantilla, codFormulario);
+
+  const porDefecto = libro.getSheetByName("Hoja 1") || libro.getSheetByName("Sheet1");
+  if (porDefecto) libro.deleteSheet(porDefecto);
+
+  libro.setActiveSheet(libro.getSheetByName("FORMULARIO"));
+
+  const archivo = DriveApp.getFileById(libro.getId());
+  DriveApp.getFolderById(CARPETA_PLANTILLAS).addFile(archivo);
+  DriveApp.getRootFolder().removeFile(archivo);
+
+  registrarEmision_(idPlantilla, codFormulario, version, codEntidad,
+                    anio, periodoTxt, archivo.getId());
+
+  return { idPlantilla: idPlantilla, idArchivo: archivo.getId(), url: libro.getUrl() };
+}
+
+
+/**
+ * Construye la hoja del formulario en disposición vertical.
+ */
+function construirListaVertical_(libro, renglones, entidad, anio, periodo,
+                                 idPlantilla, codFormulario) {
+  const hoja = libro.insertSheet("FORMULARIO");
+  let f = 1;
+
+  // ===== Aviso obligatorio =====
+  hoja.getRange(f, 1, 1, 3).merge()
+      .setValue("PLANTILLA DE TRABAJO - NO CONSTITUYE DECLARACIÓN TRIBUTARIA")
+      .setBackground(AMARILLO_AVISO)
+      .setFontSize(10).setFontWeight("bold")
+      .setHorizontalAlignment("center");
+  f += 2;
+
+  // ===== Título =====
+  hoja.getRange(f, 1, 1, 2).merge()
+      .setValue("Declaración del impuesto sobre las ventas - IVA")
+      .setFontSize(13).setFontWeight("bold")
+      .setBackground(AZUL_TITULO).setFontColor(BLANCO)
+      .setHorizontalAlignment("center").setVerticalAlignment("middle");
+  hoja.getRange(f, 3)
+      .setValue(codFormulario.replace("F", ""))
+      .setFontSize(22).setFontWeight("bold")
+      .setBackground(AZUL_TITULO).setFontColor(BLANCO)
+      .setHorizontalAlignment("center").setVerticalAlignment("middle");
+  hoja.setRowHeight(f, 34);
+  f += 2;
+
+  // ===== Datos del declarante =====
+  hoja.getRange(f, 1, 1, 3).merge()
+      .setValue("Datos del declarante")
+      .setBackground(AZUL_SECCION).setFontWeight("bold");
+  f++;
+
+  const inicioDeclarante = f;
+  const declarante = [
+    ["1. Año", anio],
+    ["3. Período", periodo],
+    ["5. NIT", entidad.nit],
+    ["6. DV", entidad.dv],
+    ["11. Razón social", entidad.nombre],
+    ["12. Cód. dirección seccional", entidad.direccion_seccional],
+    ["Identificador de plantilla", idPlantilla]
+  ];
+
+  declarante.forEach(function (fila) {
+    hoja.getRange(f, 1).setValue(fila[0]).setFontWeight("bold");
+    hoja.getRange(f, 2, 1, 2).merge().setValue(fila[1]);
+    f++;
+  });
+
+  hoja.getRange(inicioDeclarante, 1, declarante.length, 3)
+      .setBackground(GRIS_BLOQUEO).setFontSize(9);
+  f++;
+
+  // ===== Cabecera de la lista =====
+  hoja.getRange(f, 1, 1, 3)
+      .setValues([["Renglón", "Concepto", "Valor"]])
+      .setFontWeight("bold").setBackground(AZUL_CABECERA)
+      .setHorizontalAlignment("center");
+  f++;
+
+  // ===== Cuerpo =====
+  const inicioLista = f;
+  let seccionActual = "";
+
+  renglones.forEach(function (r) {
+    if (r.seccion !== seccionActual) {
+      seccionActual = r.seccion;
+      hoja.getRange(f, 1, 1, 3).merge()
+          .setValue(titularSeccion300_(seccionActual))
+          .setFontWeight("bold").setBackground(AZUL_SECCION).setFontSize(9);
+      f++;
+    }
+
+    const calculado = String(r.editable).toUpperCase() === "NO";
+
+    hoja.getRange(f, 1).setValue(r.nro_renglon)
+        .setFontSize(9).setHorizontalAlignment("center")
+        .setBackground(AZUL_CABECERA);
+    hoja.getRange(f, 2).setValue(r.etiqueta)
+        .setWrap(true).setFontSize(9)
+        .setFontWeight(calculado ? "bold" : "normal");
+    hoja.getRange(f, 3).setBackground(calculado ? GRIS_BLOQUEO : BLANCO);
+
+    f++;
+  });
+
+  // ===== Formato =====
+  const ultima = f - 1;
+  hoja.getRange(inicioLista, 1, ultima - inicioLista + 1, 3)
+      .setBorder(true, true, true, true, true, true, "#B0B0B0",
+                 SpreadsheetApp.BorderStyle.SOLID);
+
+  hoja.getRange(inicioLista, 3, ultima - inicioLista + 1, 1)
+      .setNumberFormat("#,##0").setHorizontalAlignment("right");
+
+  hoja.setColumnWidth(1, 70);
+  hoja.setColumnWidth(2, 420);
+  hoja.setColumnWidth(3, 160);
+  hoja.setFrozenRows(inicioLista - 1);
+}
+
+
+/**
+ * Convierte el código de sección en un título legible.
+ */
+function titularSeccion300_(seccion) {
+  const titulos = {
+    INGRESOS:              "Ingresos",
+    COMPRAS_IMPORTACION:   "Compras - importación",
+    COMPRAS_NACIONALES:    "Compras - nacionales",
+    IMPUESTO_GENERADO:     "Liquidación privada - impuesto generado",
+    IMPUESTO_DESCONTABLE:  "Liquidación privada - impuesto descontable",
+    SALDOS:                "Saldos",
+    CONTROL_SALDOS:        "Control de saldos",
+    ANTICIPOS_SIMPLE:      "Anticipos IVA Régimen SIMPLE"
+  };
+  return titulos[seccion] || seccion;
+}
