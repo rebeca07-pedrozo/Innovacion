@@ -44,14 +44,18 @@ function obtenerEstadoPeriodo(codFormulario, periodoTxt) {
 
   return { formulario: cod, periodo: anio + "-" + per, entidades: estado };
 }
-
-
-function buscarPlantillaExistente(codFormulario, codEntidad, periodoTxt) {
+/**
+ * Entrega la plantilla de una combinación, generándola si no existe.
+ * El periodo elegido es el que queda impreso en el encabezado.
+ */
+function obtenerPlantilla(codFormulario, codEntidad, periodoTxt) {
   const anio = periodoTxt.split("-")[0];
   const per  = periodoTxt.split("-")[1];
 
   const datos = SpreadsheetApp.openById(ID_OPERACION)
                   .getSheetByName("PLANTILLAS_EMITIDAS").getDataRange().getValues();
+
+  // Se recorre de abajo hacia arriba para tomar la emisión más reciente
   for (let i = datos.length - 1; i >= 1; i--) {
     if (datos[i][1] !== codFormulario) continue;
     if (datos[i][3] !== codEntidad) continue;
@@ -59,35 +63,28 @@ function buscarPlantillaExistente(codFormulario, codEntidad, periodoTxt) {
     if (String(datos[i][5]) !== per) continue;
 
     return {
-      encontrada:  true,
       idPlantilla: datos[i][0],
       generadaPor: datos[i][7],
       fecha:       formatearFecha(datos[i][8]),
-      url:         "https://docs.google.com/spreadsheets/d/" + datos[i][6] + "/edit",
+      reutilizada: true,
       urlDescarga: "https://docs.google.com/spreadsheets/d/" + datos[i][6] +
                    "/export?format=xlsx"
     };
   }
 
-  return { encontrada: false };
-}
-function generarPlantillaDesdeWeb(codFormulario, codEntidad, periodoTxt) {
-  const anio    = parseInt(periodoTxt.split("-")[0], 10);
-  const periodo = parseInt(periodoTxt.split("-")[1], 10);
-
-  const r = generarPlantilla(codFormulario, codEntidad, anio, periodo);
+  // No existía: se genera en el momento
+  const r = generarPlantilla(codFormulario, codEntidad,
+                             parseInt(anio, 10), parseInt(per, 10));
 
   return {
-    encontrada:  true,
     idPlantilla: r.idPlantilla,
     generadaPor: Session.getActiveUser().getEmail(),
     fecha:       formatearFecha(new Date()),
-    url:         r.url,
+    reutilizada: false,
     urlDescarga: "https://docs.google.com/spreadsheets/d/" + r.idArchivo +
                  "/export?format=xlsx"
   };
 }
-
 
 function recibirCarga(datosArchivo, nombreArchivo) {
   let idTemporal = null;
