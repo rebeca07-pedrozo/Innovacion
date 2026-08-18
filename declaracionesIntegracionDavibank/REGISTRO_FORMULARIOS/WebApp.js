@@ -4,12 +4,54 @@ function doGet() {
     .setTitle("Sistema de declaraciones")
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
+
+
 function obtenerDatosIniciales() {
+  const formularios = listarFormularios_();
+  const primero = formularios.length ? formularios[0].codigo : "F350";
+
   return {
     usuario:     Session.getActiveUser().getEmail(),
-    formularios: listarFormularios_(),
+    formularios: formularios,
     entidades:   listarEntidades_(),
-    periodos:    construirPeriodos_()
+    periodos:    construirPeriodos_(primero)
+  };
+}
+function obtenerPeriodos(codFormulario) {
+  return construirPeriodos_(codFormulario);
+}
+function obtenerPlantilla(codFormulario, codEntidad, periodoTxt) {
+  const anio = periodoTxt.split("-")[0];
+  const per  = periodoTxt.split("-")[1];
+
+  const datos = SpreadsheetApp.openById(ID_OPERACION)
+                  .getSheetByName("PLANTILLAS_EMITIDAS").getDataRange().getValues();
+
+  for (let i = datos.length - 1; i >= 1; i--) {
+    if (datos[i][1] !== codFormulario) continue;
+    if (datos[i][3] !== codEntidad) continue;
+    if (String(datos[i][4]) !== anio) continue;
+    if (String(datos[i][5]) !== per) continue;
+
+    return {
+      idPlantilla: datos[i][0],
+      generadaPor: datos[i][7],
+      fecha:       formatearFecha(datos[i][8]),
+      reutilizada: true,
+      urlDescarga: "https://docs.google.com/spreadsheets/d/" + datos[i][6] +
+                   "/export?format=xlsx"
+    };
+  }
+  const r = generarPlantilla(codFormulario, codEntidad,
+                             parseInt(anio, 10), parseInt(per, 10));
+
+  return {
+    idPlantilla: r.idPlantilla,
+    generadaPor: Session.getActiveUser().getEmail(),
+    fecha:       formatearFecha(new Date()),
+    reutilizada: false,
+    urlDescarga: "https://docs.google.com/spreadsheets/d/" + r.idArchivo +
+                 "/export?format=xlsx"
   };
 }
 function obtenerEstadoPeriodo(codFormulario, periodoTxt) {
@@ -44,48 +86,6 @@ function obtenerEstadoPeriodo(codFormulario, periodoTxt) {
 
   return { formulario: cod, periodo: anio + "-" + per, entidades: estado };
 }
-/**
- * Entrega la plantilla de una combinación, generándola si no existe.
- * El periodo elegido es el que queda impreso en el encabezado.
- */
-function obtenerPlantilla(codFormulario, codEntidad, periodoTxt) {
-  const anio = periodoTxt.split("-")[0];
-  const per  = periodoTxt.split("-")[1];
-
-  const datos = SpreadsheetApp.openById(ID_OPERACION)
-                  .getSheetByName("PLANTILLAS_EMITIDAS").getDataRange().getValues();
-
-  // Se recorre de abajo hacia arriba para tomar la emisión más reciente
-  for (let i = datos.length - 1; i >= 1; i--) {
-    if (datos[i][1] !== codFormulario) continue;
-    if (datos[i][3] !== codEntidad) continue;
-    if (String(datos[i][4]) !== anio) continue;
-    if (String(datos[i][5]) !== per) continue;
-
-    return {
-      idPlantilla: datos[i][0],
-      generadaPor: datos[i][7],
-      fecha:       formatearFecha(datos[i][8]),
-      reutilizada: true,
-      urlDescarga: "https://docs.google.com/spreadsheets/d/" + datos[i][6] +
-                   "/export?format=xlsx"
-    };
-  }
-
-  // No existía: se genera en el momento
-  const r = generarPlantilla(codFormulario, codEntidad,
-                             parseInt(anio, 10), parseInt(per, 10));
-
-  return {
-    idPlantilla: r.idPlantilla,
-    generadaPor: Session.getActiveUser().getEmail(),
-    fecha:       formatearFecha(new Date()),
-    reutilizada: false,
-    urlDescarga: "https://docs.google.com/spreadsheets/d/" + r.idArchivo +
-                 "/export?format=xlsx"
-  };
-}
-
 function recibirCarga(datosArchivo, nombreArchivo) {
   let idTemporal = null;
 
@@ -143,23 +143,39 @@ function listarEntidades_() {
 
   return lista;
 }
+function construirPeriodos_(codFormulario) {
+  const def = definicionFormulario(codFormulario);
+  const periodicidad = String(def.periodicidad).toUpperCase();
 
+  const etiquetas = {
+    MENSUAL: ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+              "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+    BIMESTRAL: ["ene-feb", "mar-abr", "may-jun", "jul-ago", "sep-oct", "nov-dic"],
+    CUATRIMESTRAL: ["ene-abr", "may-ago", "sep-dic"],
+    ANUAL: ["año completo"]
+  };
 
-function construirPeriodos_() {
-  const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
-                 "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
-  const lista = [];
+  const nombres = etiquetas[periodicidad] || etiquetas.MENSUAL;
+  const cantidad = nombres.length;
+
   const hoy = new Date();
+  const mesesPorPeriodo = 12 / cantidad;
+  const periodoActual = Math.ceil((hoy.getMonth() + 1) / mesesPorPeriodo);
 
-  for (let i = 0; i < 12; i++) {
-    const f = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-    const anio = f.getFullYear();
-    const mes  = ("0" + (f.getMonth() + 1)).slice(-2);
-
+  const lista = [];
+  let anio = hoy.getFullYear();
+  let periodo = periodoActual;
+  for (let i = 0; i < cantidad * 2; i++) {
     lista.push({
-      valor: anio + "-" + mes,
-      texto: anio + " · " + mes + " — " + meses[f.getMonth()]
+      valor: anio + "-" + ("0" + periodo).slice(-2),
+      texto: anio + " · " + ("0" + periodo).slice(-2) + " — " + nombres[periodo - 1]
     });
+
+    periodo--;
+    if (periodo < 1) {
+      periodo = cantidad;
+      anio--;
+    }
   }
 
   return lista;
