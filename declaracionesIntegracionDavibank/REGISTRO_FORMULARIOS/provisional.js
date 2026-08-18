@@ -1,7 +1,3 @@
-/**
- * Comparte con el dominio las plantillas ya emitidas.
- * Ejecutar una sola vez tras el cambio de permisos.
- */
 function compartirPlantillasExistentes() {
   const datos = SpreadsheetApp.openById(ID_OPERACION)
                   .getSheetByName("PLANTILLAS_EMITIDAS").getDataRange().getValues();

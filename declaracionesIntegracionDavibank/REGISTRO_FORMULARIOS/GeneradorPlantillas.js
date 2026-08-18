@@ -31,6 +31,7 @@ function generarPlantilla(codFormulario, codEntidad, anio, periodo) {
   const archivo = DriveApp.getFileById(libro.getId());
   DriveApp.getFolderById(CARPETA_PLANTILLAS).addFile(archivo);
   DriveApp.getRootFolder().removeFile(archivo);
+  archivo.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
 
   registrarEmision_(idPlantilla, def, codEntidad, anio, periodoTxt, archivo.getId());
 
