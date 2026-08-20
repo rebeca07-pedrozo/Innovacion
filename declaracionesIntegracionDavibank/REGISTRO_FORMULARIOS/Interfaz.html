@@ -880,9 +880,41 @@
       completo ? '' : 'Faltan cargas aprobadas de todas las entidades';
   }
 
-  function conGenerar() {
-    alert('El módulo de consolidación aún no está implementado.');
+    function conGenerar() {
+    var f = document.getElementById('con-formulario').value;
+    var a = document.getElementById('con-anio').value;
+    var p = document.getElementById('con-periodo').value;
+
+    var boton = document.getElementById('con-boton');
+    boton.disabled = true;
+    document.getElementById('con-motivo').textContent = 'Generando consolidado…';
+
+    google.script.run
+      .withSuccessHandler(function (r) {
+        boton.disabled = false;
+        document.getElementById('con-motivo').textContent = '';
+
+        if (!r.ok) {
+          alert('No se pudo consolidar: ' + r.mensaje);
+          return;
+        }
+
+        CONSOLIDADO = r.resultado;
+        document.getElementById('des-detalle').innerHTML =
+          CONSOLIDADO.idConsolidado + '<br>' +
+          CONSOLIDADO.formulario + ' · período ' + CONSOLIDADO.periodo + '<br>' +
+          'Entidades: ' + CONSOLIDADO.entidades.join(', ');
+
+        irA('descarga');
+      })
+      .withFailureHandler(function (e) {
+        boton.disabled = false;
+        document.getElementById('con-motivo').textContent = '';
+        alert('Ocurrió un problema: ' + e.message);
+      })
+      .consolidarDesdeWeb(f, a + '-' + p);
   }
+
 
   function conFallo(e) {
     document.getElementById('con-tabla').innerHTML =
@@ -895,11 +927,11 @@
   var CONSOLIDADO = { id: '', formulario: '', periodo: '', url: '' };
 
   function desDescargar() {
-    if (!CONSOLIDADO.url) {
-      alert('El módulo de consolidación aún no está implementado.');
+    if (!CONSOLIDADO.urlDescarga) {
+      alert('No hay consolidado generado.');
       return;
     }
-    window.open(CONSOLIDADO.url, '_blank');
+    abrirEnlace(CONSOLIDADO.urlDescarga);
   }
 
   /* ==================== Auxiliares ==================== */

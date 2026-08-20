@@ -234,3 +234,15 @@ function construirAnios_() {
 
   return lista;
 }
+
+/**
+ * Genera el consolidado desde la interfaz.
+ */
+function consolidarDesdeWeb(codFormulario, periodoTxt) {
+  try {
+    const r = generarConsolidado(codFormulario, periodoTxt);
+    return { ok: true, resultado: r };
+  } catch (e) {
+    return { ok: false, mensaje: e.message };
+  }
+}

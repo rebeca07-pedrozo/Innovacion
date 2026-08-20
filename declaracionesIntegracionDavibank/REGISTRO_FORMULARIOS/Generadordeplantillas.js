@@ -1,3 +1,16 @@
+/**
+ * ============================================================
+ * GENERADOR DE PLANTILLAS
+ *
+ * La disposición se lee de la hoja FORMULARIOS:
+ *   MATRIZ  → cuatro columnas de valores por concepto (350)
+ *   LISTA   → dos bloques paralelos de renglones (300)
+ * ============================================================
+ */
+
+/**
+ * Genera una plantilla para un formulario, entidad y periodo.
+ */
 function generarPlantilla(codFormulario, codEntidad, anio, periodo) {
   const def = definicionFormulario(codFormulario);
   const renglones = leerRenglones_(codFormulario, def.version);
@@ -5,6 +18,7 @@ function generarPlantilla(codFormulario, codEntidad, anio, periodo) {
   if (!renglones.length) {
     throw new Error("El catálogo no tiene renglones para " + codFormulario);
   }
+
   const entidad = leerEntidad_(codEntidad);
   const idPlantilla = generarIdPlantilla_();
   const periodoTxt = formatearPeriodo(periodo);
@@ -19,7 +33,7 @@ function generarPlantilla(codFormulario, codEntidad, anio, periodo) {
     construirMatriz_(libro, renglones, entidad, anio, periodo, idPlantilla, def);
     construirExterior_(libro, renglones);
   } else {
-    construirLista_(libro, renglones, entidad, anio, periodo, idPlantilla, def);
+    construirDobleColumna_(libro, renglones, entidad, anio, periodo, idPlantilla, def);
   }
 
   const porDefecto = libro.getSheetByName("Hoja 1") || libro.getSheetByName("Sheet1");
@@ -38,6 +52,11 @@ function generarPlantilla(codFormulario, codEntidad, anio, periodo) {
 
   return { idPlantilla: idPlantilla, idArchivo: archivo.getId(), url: libro.getUrl() };
 }
+
+
+/**
+ * Escribe el encabezado común. Devuelve la siguiente fila libre.
+ */
 function escribirEncabezado_(hoja, def, entidad, anio, periodo, idPlantilla, ancho) {
   let f = 1;
 
@@ -73,8 +92,7 @@ function escribirEncabezado_(hoja, def, entidad, anio, periodo, idPlantilla, anc
     ["5. NIT", entidad.nit],
     ["6. DV", entidad.dv],
     ["11. Razón social", entidad.nombre],
-    ["12. Cód. dirección seccional", entidad.direccion_seccional],
-    ["Identificador de plantilla", idPlantilla]
+    ["12. Cód. dirección seccional", entidad.direccion_seccional]
   ];
 
   campos.forEach(function (campo) {
@@ -86,8 +104,22 @@ function escribirEncabezado_(hoja, def, entidad, anio, periodo, idPlantilla, anc
   hoja.getRange(inicio, 1, campos.length, ancho)
       .setBackground(GRIS_BLOQUEO).setFontSize(9);
 
+  // El identificador es de uso interno del sistema
+  hoja.getRange(f, 1).setValue("Control interno · no modificar")
+      .setFontWeight("bold").setFontSize(8).setFontColor("#888888");
+  hoja.getRange(f, 2, 1, ancho - 1).merge().setValue(idPlantilla)
+      .setFontSize(8).setFontColor("#888888");
+  hoja.getRange(f, 1, 1, ancho).setBackground("#F7F7F7");
+  hoja.setRowHeight(f, 16);
+  f++;
+
   return f + 1;
 }
+
+
+/**
+ * Disposición de matriz: cuatro columnas de valores por concepto.
+ */
 function construirMatriz_(libro, renglones, entidad, anio, periodo, idPlantilla, def) {
   const hoja = libro.insertSheet("FORMULARIO");
   let f = escribirEncabezado_(hoja, def, entidad, anio, periodo, idPlantilla, 9);
@@ -155,7 +187,16 @@ function construirMatriz_(libro, renglones, entidad, anio, periodo, idPlantilla,
     hoja.getRange(f, 8).setValue(t.nro_renglon)
         .setFontSize(8).setHorizontalAlignment("center")
         .setBackground(AZUL_CABECERA);
-    hoja.getRange(f, 9).setBackground(calculado ? GRIS_BLOQUEO : BLANCO);
+
+    const celda = hoja.getRange(f, 9);
+    if (calculado) {
+      celda.setBackground(GRIS_BLOQUEO)
+           .setValue("(calculado)")
+           .setFontSize(8).setFontColor("#999999")
+           .setHorizontalAlignment("right");
+    } else {
+      celda.setBackground(BLANCO);
+    }
     f++;
   });
 
@@ -173,55 +214,103 @@ function construirMatriz_(libro, renglones, entidad, anio, periodo, idPlantilla,
   [2, 4, 6, 8].forEach(function (c) { hoja.setColumnWidth(c, 32); });
   [3, 5, 7, 9].forEach(function (c) { hoja.setColumnWidth(c, 130); });
 }
-function construirLista_(libro, renglones, entidad, anio, periodo, idPlantilla, def) {
-  const hoja = libro.insertSheet("FORMULARIO");
-  let f = escribirEncabezado_(hoja, def, entidad, anio, periodo, idPlantilla, 3);
 
-  hoja.getRange(f, 1, 1, 3)
-      .setValues([["Renglón", "Concepto", "Valor"]])
+
+/**
+ * Disposición de dos bloques paralelos, como en el formulario impreso.
+ * El corte entre columnas se calcula por la mitad de los renglones.
+ */
+function construirDobleColumna_(libro, renglones, entidad, anio, periodo,
+                                idPlantilla, def) {
+  const hoja = libro.insertSheet("FORMULARIO");
+  let f = escribirEncabezado_(hoja, def, entidad, anio, periodo, idPlantilla, 7);
+
+  const ordenados = renglones.slice().sort(function (a, b) {
+    return a.nro_renglon - b.nro_renglon;
+  });
+
+  // Los renglones se reparten en dos bloques manteniendo el orden vertical
+  const corte = Math.ceil(ordenados.length / 2);
+  const izquierda = ordenados.slice(0, corte);
+  const derecha   = ordenados.slice(corte);
+
+  // ===== Cabecera de los dos bloques =====
+  hoja.getRange(f, 1, 1, 3).merge().setValue("Concepto")
+      .setFontWeight("bold").setBackground(AZUL_CABECERA)
+      .setHorizontalAlignment("center");
+  hoja.getRange(f, 5, 1, 3).merge().setValue("Concepto")
       .setFontWeight("bold").setBackground(AZUL_CABECERA)
       .setHorizontalAlignment("center");
   f++;
 
   const inicio = f;
-  const ordenados = renglones.slice().sort(function (a, b) {
-    return a.nro_renglon - b.nro_renglon;
-  });
+  const filas = Math.max(izquierda.length, derecha.length);
 
-  let seccionActual = "";
-
-  ordenados.forEach(function (r) {
-    if (r.seccion !== seccionActual) {
-      seccionActual = r.seccion;
-      hoja.getRange(f, 1, 1, 3).merge()
-          .setValue(titularSeccion(seccionActual))
-          .setFontWeight("bold").setBackground(AZUL_SECCION).setFontSize(9);
-      f++;
-    }
-
-    const calculado = String(r.editable).toUpperCase() === "NO";
-
-    hoja.getRange(f, 1).setValue(r.nro_renglon)
-        .setFontSize(9).setHorizontalAlignment("center")
-        .setBackground(AZUL_CABECERA);
-    hoja.getRange(f, 2).setValue(r.etiqueta)
-        .setWrap(true).setFontSize(9)
-        .setFontWeight(calculado ? "bold" : "normal");
-    hoja.getRange(f, 3).setBackground(calculado ? GRIS_BLOQUEO : BLANCO);
+  for (let i = 0; i < filas; i++) {
+    escribirBloque_(hoja, f, 1, izquierda[i]);
+    escribirBloque_(hoja, f, 5, derecha[i]);
     f++;
-  });
+  }
 
   const ultima = f - 1;
+
+  // ===== Formato =====
   hoja.getRange(inicio, 1, ultima - inicio + 1, 3)
       .setBorder(true, true, true, true, true, true, "#B0B0B0",
                  SpreadsheetApp.BorderStyle.SOLID);
-  hoja.getRange(inicio, 3, ultima - inicio + 1, 1)
-      .setNumberFormat("#,##0").setHorizontalAlignment("right");
+  hoja.getRange(inicio, 5, ultima - inicio + 1, 3)
+      .setBorder(true, true, true, true, true, true, "#B0B0B0",
+                 SpreadsheetApp.BorderStyle.SOLID);
 
-  hoja.setColumnWidth(1, 70);
-  hoja.setColumnWidth(2, 420);
-  hoja.setColumnWidth(3, 160);
+  [3, 7].forEach(function (col) {
+    hoja.getRange(inicio, col, ultima - inicio + 1, 1)
+        .setNumberFormat("#,##0").setHorizontalAlignment("right");
+  });
+
+  hoja.setColumnWidth(1, 290);   // etiqueta izquierda
+  hoja.setColumnWidth(2, 40);    // renglón izquierda
+  hoja.setColumnWidth(3, 140);   // valor izquierda
+  hoja.setColumnWidth(4, 20);    // separación
+  hoja.setColumnWidth(5, 290);   // etiqueta derecha
+  hoja.setColumnWidth(6, 40);    // renglón derecha
+  hoja.setColumnWidth(7, 140);   // valor derecha
 }
+
+
+/**
+ * Escribe un renglón dentro de un bloque de tres columnas.
+ */
+function escribirBloque_(hoja, fila, colInicial, renglon) {
+  if (!renglon) return;
+
+  const calculado = String(renglon.editable).toUpperCase() === "NO";
+
+  hoja.getRange(fila, colInicial)
+      .setValue(renglon.etiqueta)
+      .setWrap(true).setFontSize(9)
+      .setFontWeight(calculado ? "bold" : "normal")
+      .setBackground(calculado ? "#F2F2F2" : BLANCO);
+
+  hoja.getRange(fila, colInicial + 1)
+      .setValue(renglon.nro_renglon)
+      .setFontSize(8).setHorizontalAlignment("center")
+      .setBackground(AZUL_CABECERA);
+
+  const celda = hoja.getRange(fila, colInicial + 2);
+  if (calculado) {
+    celda.setBackground(GRIS_BLOQUEO)
+         .setValue("(calculado)")
+         .setFontSize(8).setFontColor("#999999")
+         .setHorizontalAlignment("right");
+  } else {
+    celda.setBackground(BLANCO);
+  }
+}
+
+
+/**
+ * Hoja de detalle de pagos al exterior. Su diligenciamiento es opcional.
+ */
 function construirExterior_(libro, renglones) {
   const totalesExt = renglones.filter(function (r) {
     return r.seccion === "TOTALES_EXTERIOR";
@@ -239,31 +328,38 @@ function construirExterior_(libro, renglones) {
       .setHorizontalAlignment("center");
   hoja.setRowHeight(1, 28);
 
-  hoja.getRange(3, 1, 1, 8).setValues([[
+  hoja.getRange(2, 1, 1, 8).merge()
+      .setValue("Opcional. Si no hubo pagos al exterior en el período, dejar esta hoja vacía.")
+      .setFontSize(9).setFontColor("#666666")
+      .setHorizontalAlignment("center");
+
+  hoja.getRange(4, 1, 1, 8).setValues([[
     "141. A países", "142. Concepto de pago", "143. Tipo de persona",
     "144. País", "Cód.", "145. Pagos o abonos en cuenta",
     "146. Tarifa (%)", "147. Valor retención"
   ]]).setBackground(AZUL_CABECERA).setFontWeight("bold").setFontSize(9)
      .setWrap(true).setHorizontalAlignment("center");
-  hoja.setRowHeight(3, 34);
+  hoja.setRowHeight(4, 34);
 
-  hoja.getRange(4, 1, FILAS, 8).setBackground(BLANCO);
-  hoja.getRange(4, 6, FILAS, 1).setNumberFormat("#,##0");
-  hoja.getRange(4, 8, FILAS, 1).setNumberFormat("#,##0");
-  hoja.getRange(4, 7, FILAS, 1).setNumberFormat("0.00%");
+  hoja.getRange(5, 1, FILAS, 8).setBackground(BLANCO);
+  hoja.getRange(5, 6, FILAS, 1).setNumberFormat("#,##0");
+  hoja.getRange(5, 8, FILAS, 1).setNumberFormat("#,##0");
+  hoja.getRange(5, 7, FILAS, 1).setNumberFormat("0.00%");
 
-  hoja.getRange(4, 1, FILAS, 1).setDataValidation(
+  hoja.getRange(5, 1, FILAS, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
-      .requireValueInList(["SIN CONVENIO", "CON CONVENIO"], true).build());
-  hoja.getRange(4, 3, FILAS, 1).setDataValidation(
+      .requireValueInList(["SIN CONVENIO", "CON CONVENIO"], true)
+      .setAllowInvalid(true).build());
+  hoja.getRange(5, 3, FILAS, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
-      .requireValueInList(["1", "2"], true).build());
+      .requireValueInList(["1", "2"], true)
+      .setAllowInvalid(true).build());
 
-  hoja.getRange(4, 1, FILAS, 8)
+  hoja.getRange(5, 1, FILAS, 8)
       .setBorder(true, true, true, true, true, true, "#B0B0B0",
                  SpreadsheetApp.BorderStyle.SOLID);
 
-  let f = 4 + FILAS + 1;
+  let f = 5 + FILAS + 1;
   hoja.getRange(f, 1, 1, 8).merge().setValue("Total pagos al exterior")
       .setBackground(AZUL_SECCION).setFontWeight("bold");
   f++;
@@ -273,15 +369,23 @@ function construirExterior_(libro, renglones) {
     hoja.getRange(f, 7).setValue(t.nro_renglon)
         .setFontSize(8).setHorizontalAlignment("center")
         .setBackground(AZUL_CABECERA);
-    hoja.getRange(f, 8).setBackground(GRIS_BLOQUEO).setNumberFormat("#,##0");
+    hoja.getRange(f, 8).setBackground(GRIS_BLOQUEO)
+        .setValue("(calculado)")
+        .setFontSize(8).setFontColor("#999999")
+        .setHorizontalAlignment("right");
     f++;
   });
 
   [120, 90, 90, 160, 60, 150, 80, 150].forEach(function (ancho, i) {
     hoja.setColumnWidth(i + 1, ancho);
   });
-  hoja.setFrozenRows(3);
+  hoja.setFrozenRows(4);
 }
+
+
+/**
+ * Agrupa los renglones de la matriz por concepto.
+ */
 function agruparEnMatriz_(renglones) {
   const grupos = {};
   const orden = [];
@@ -307,6 +411,10 @@ function agruparEnMatriz_(renglones) {
   return orden.map(function (k) { return grupos[k]; })
     .sort(function (a, b) { return numeroDeGrupo_(a.clave) - numeroDeGrupo_(b.clave); });
 }
+
+
+// ---------- Lecturas ----------
+
 function leerRenglones_(codFormulario, version) {
   const datos = SpreadsheetApp.openById(ID_REGISTRO)
                   .getSheetByName("RENGLONES").getDataRange().getValues();
@@ -324,6 +432,8 @@ function leerRenglones_(codFormulario, version) {
 
   return resultado;
 }
+
+
 function leerEntidad_(codEntidad) {
   const datos = SpreadsheetApp.openById(ID_REGISTRO)
                   .getSheetByName("ENTIDADES").getDataRange().getValues();
@@ -338,6 +448,10 @@ function leerEntidad_(codEntidad) {
   }
   throw new Error("Entidad no encontrada: " + codEntidad);
 }
+
+
+// ---------- Metadatos y registro ----------
+
 function construirMeta_(libro, idPlantilla, def, codEntidad, anio, periodo) {
   const hoja = libro.insertSheet("_META");
 
@@ -378,6 +492,11 @@ function numeroDeGrupo_(clave) {
   const n = parseInt(partes[partes.length - 1], 10);
   return isNaN(n) ? 999 : n;
 }
+
+
+/**
+ * Comparte con el dominio las plantillas ya emitidas.
+ */
 function compartirPlantillasExistentes() {
   const datos = SpreadsheetApp.openById(ID_OPERACION)
                   .getSheetByName("PLANTILLAS_EMITIDAS").getDataRange().getValues();
