@@ -1,9 +1,15 @@
 /**
- * Genera el consolidado de un formulario y periodo.
+ * ============================================================
+ * CONSOLIDACIÓN
  *
- * @param {string} codFormulario  Código del formulario
- * @param {string} periodoTxt     Periodo en formato "2026-06"
- * @return {Object} { idConsolidado, url, urlDescarga, entidades, totales }
+ * Suma renglón por renglón las cargas aprobadas de todas las
+ * entidades y produce un borrador con la misma disposición
+ * del formulario original.
+ * ============================================================
+ */
+
+/**
+ * Genera el consolidado de un formulario y periodo.
  */
 function generarConsolidado(codFormulario, periodoTxt) {
   const anio = periodoTxt.split("-")[0];
@@ -17,15 +23,25 @@ function generarConsolidado(codFormulario, periodoTxt) {
                     "Actualmente hay " + entradas.length + ".");
   }
 
-  const catalogo = leerCatalogoValidacion_(codFormulario, def.version);
-  const sumas    = sumarEntradas_(entradas, catalogo);
+  const catalogo  = leerCatalogoValidacion_(codFormulario, def.version);
+  const renglones = leerRenglones_(codFormulario, def.version);
+  const sumas     = sumarEntradas_(entradas, catalogo);
 
   const idConsolidado = generarIdConsolidado_();
-  const renglones = leerRenglones_(codFormulario, def.version);
 
-  const libro = construirLibroConsolidado_(
-    idConsolidado, def, anio, per, renglones, sumas, entradas
-  );
+  const nombre = "CONS_" + def.codigo + "_" + anio + "-" + per + "_" + idConsolidado;
+  const libro = SpreadsheetApp.create(nombre);
+
+  if (def.disposicion === "MATRIZ") {
+    consolidadoMatriz_(libro, renglones, sumas, def, anio, per,
+                       idConsolidado, entradas);
+  } else {
+    consolidadoDobleColumna_(libro, renglones, sumas, def, anio, per,
+                             idConsolidado, entradas);
+  }
+
+  const porDefecto = libro.getSheetByName("Hoja 1") || libro.getSheetByName("Sheet1");
+  if (porDefecto) libro.deleteSheet(porDefecto);
 
   const archivo = DriveApp.getFileById(libro.getId());
   DriveApp.getFolderById(CARPETA_CONSOLIDADOS).addFile(archivo);
@@ -81,27 +97,19 @@ function sumarEntradas_(entradas, catalogo) {
                   .getSheetByName("DATOS_CARGADOS").getDataRange().getValues();
 
   const radicados = entradas.map(function (e) { return e.radicado; });
-  const sumas = { TOTAL: {} };
+  const sumas = {};
 
-  entradas.forEach(function (e) { sumas[e.entidad] = {}; });
-
-  // Todo renglón del catálogo parte en cero
   Object.keys(catalogo).forEach(function (nro) {
-    const n = parseInt(nro, 10);
-    sumas.TOTAL[n] = 0;
-    entradas.forEach(function (e) { sumas[e.entidad][n] = 0; });
+    sumas[parseInt(nro, 10)] = 0;
   });
 
   for (let i = 1; i < datos.length; i++) {
-    const posicion = radicados.indexOf(datos[i][0]);
-    if (posicion < 0) continue;
+    if (radicados.indexOf(datos[i][0]) < 0) continue;
 
     const nro = parseInt(datos[i][3], 10);
-    if (!(nro in sumas.TOTAL)) continue;
+    if (!(nro in sumas)) continue;
 
-    const valor = aNumero(datos[i][4]);
-    sumas[entradas[posicion].entidad][nro] = valor;
-    sumas.TOTAL[nro] += valor;
+    sumas[nro] += aNumero(datos[i][4]);
   }
 
   return sumas;
@@ -109,35 +117,13 @@ function sumarEntradas_(entradas, catalogo) {
 
 
 /**
- * Construye el libro del consolidado.
+ * Escribe el encabezado del borrador consolidado.
+ * Devuelve la siguiente fila libre.
  */
-function construirLibroConsolidado_(idConsolidado, def, anio, per,
-                                    renglones, sumas, entradas) {
-  const nombre = "CONS_" + def.codigo + "_" + anio + "-" + per + "_" + idConsolidado;
-  const libro = SpreadsheetApp.create(nombre);
-
-  construirHojaConsolidado_(libro, idConsolidado, def, anio, per,
-                            renglones, sumas, entradas);
-
-  const porDefecto = libro.getSheetByName("Hoja 1") || libro.getSheetByName("Sheet1");
-  if (porDefecto) libro.deleteSheet(porDefecto);
-
-  return libro;
-}
-
-
-/**
- * Escribe la hoja del consolidado con una columna por entidad.
- */
-function construirHojaConsolidado_(libro, idConsolidado, def, anio, per,
-                                   renglones, sumas, entradas) {
-  const hoja = libro.insertSheet("CONSOLIDADO");
-  const nombresEntidad = entradas.map(function (e) { return e.entidad; });
-  const ancho = 2 + nombresEntidad.length + 1;
-
+function encabezadoConsolidado_(hoja, def, anio, per, idConsolidado,
+                                entradas, ancho) {
   let f = 1;
 
-  // ===== Aviso obligatorio =====
   hoja.getRange(f, 1, 1, ancho).merge()
       .setValue("BORRADOR - DOCUMENTO DE TRABAJO INTERNO - " +
                 "NO CONSTITUYE DECLARACIÓN TRIBUTARIA")
@@ -146,9 +132,8 @@ function construirHojaConsolidado_(libro, idConsolidado, def, anio, per,
       .setHorizontalAlignment("center");
   f += 2;
 
-  // ===== Título =====
   hoja.getRange(f, 1, 1, ancho - 1).merge()
-      .setValue("Consolidado · " + def.nombre)
+      .setValue(def.nombre + " · consolidado")
       .setFontSize(13).setFontWeight("bold")
       .setBackground(AZUL_TITULO).setFontColor(BLANCO)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
@@ -160,97 +145,220 @@ function construirHojaConsolidado_(libro, idConsolidado, def, anio, per,
   hoja.setRowHeight(f, 34);
   f += 2;
 
-  // ===== Datos de la consolidación =====
-  const inicioDatos = f;
-  const detalle = [
-    ["Identificador", idConsolidado],
-    ["Formulario", def.codigo + " · " + def.version],
-    ["Año", anio],
-    ["Período", per],
-    ["Generado por", Session.getActiveUser().getEmail()],
-    ["Fecha de generación", formatearFecha(new Date())],
-    ["Radicados incluidos", entradas.map(function (e) {
+  hoja.getRange(f, 1, 1, ancho).merge()
+      .setValue("Datos de la consolidación")
+      .setBackground(AZUL_SECCION).setFontWeight("bold");
+  f++;
+
+  const inicio = f;
+  const campos = [
+    ["1. Año", anio],
+    ["3. Período", per],
+    ["Entidades consolidadas", entradas.map(function (e) {
+      return e.entidad;
+    }).join("  +  ")],
+    ["Radicados de origen", entradas.map(function (e) {
       return e.entidad + ": " + e.radicado;
-    }).join("  ·  ")]
+    }).join("   ·   ")],
+    ["Generado por", Session.getActiveUser().getEmail()],
+    ["Fecha de generación", formatearFecha(new Date())]
   ];
 
-  detalle.forEach(function (fila) {
-    hoja.getRange(f, 1).setValue(fila[0]).setFontWeight("bold");
-    hoja.getRange(f, 2, 1, ancho - 1).merge().setValue(fila[1]);
+  campos.forEach(function (campo) {
+    hoja.getRange(f, 1).setValue(campo[0]).setFontWeight("bold");
+    hoja.getRange(f, 2, 1, ancho - 1).merge().setValue(campo[1]);
     f++;
   });
 
-  hoja.getRange(inicioDatos, 1, detalle.length, ancho)
+  hoja.getRange(inicio, 1, campos.length, ancho)
       .setBackground(GRIS_BLOQUEO).setFontSize(9);
+
+  hoja.getRange(f, 1).setValue("Control interno")
+      .setFontWeight("bold").setFontSize(8).setFontColor("#888888");
+  hoja.getRange(f, 2, 1, ancho - 1).merge().setValue(idConsolidado)
+      .setFontSize(8).setFontColor("#888888");
+  hoja.getRange(f, 1, 1, ancho).setBackground("#F7F7F7");
+  hoja.setRowHeight(f, 16);
   f++;
 
-  // ===== Cabecera de la tabla =====
-  const cabecera = ["Renglón", "Concepto"]
-    .concat(nombresEntidad)
-    .concat(["Consolidado"]);
+  return f + 1;
+}
 
-  hoja.getRange(f, 1, 1, ancho).setValues([cabecera])
+
+/**
+ * Consolidado con disposición de matriz, como el formulario 350.
+ */
+function consolidadoMatriz_(libro, renglones, sumas, def, anio, per,
+                            idConsolidado, entradas) {
+  const hoja = libro.insertSheet("CONSOLIDADO");
+  let f = encabezadoConsolidado_(hoja, def, anio, per, idConsolidado, entradas, 9);
+
+  hoja.getRange(f, 1, 2, 1).merge().setValue("Concepto")
       .setFontWeight("bold").setBackground(AZUL_CABECERA)
-      .setHorizontalAlignment("center").setWrap(true);
-  hoja.setRowHeight(f, 28);
+      .setVerticalAlignment("middle");
+  hoja.getRange(f, 2, 1, 4).merge().setValue("A personas jurídicas")
+      .setFontWeight("bold").setBackground(AZUL_CABECERA)
+      .setHorizontalAlignment("center");
+  hoja.getRange(f, 6, 1, 4).merge().setValue("A personas naturales")
+      .setFontWeight("bold").setBackground(AZUL_CABECERA)
+      .setHorizontalAlignment("center");
   f++;
 
-  // ===== Cuerpo =====
-  const inicioTabla = f;
-  const ordenados = renglones.slice().sort(function (a, b) {
-    return a.nro_renglon - b.nro_renglon;
-  });
+  hoja.getRange(f, 1, 1, 9).setBackground(AZUL_CABECERA).setFontSize(9)
+      .setHorizontalAlignment("center").setWrap(true);
+  hoja.getRange(f, 2, 1, 2).merge().setValue("Base sujeta a retención");
+  hoja.getRange(f, 4, 1, 2).merge().setValue("Retenciones a título de renta");
+  hoja.getRange(f, 6, 1, 2).merge().setValue("Base sujeta a retención");
+  hoja.getRange(f, 8, 1, 2).merge().setValue("Retenciones a título de renta");
+  hoja.setRowHeight(f, 30);
+  f++;
+
+  const inicio = f;
+  const matriz = agruparEnMatriz_(renglones);
+  const totales = renglones.filter(function (r) {
+    return String(r.seccion).indexOf("TOTALES") === 0 && r.seccion !== "TOTALES_EXTERIOR";
+  }).sort(function (a, b) { return a.nro_renglon - b.nro_renglon; });
 
   let seccionActual = "";
 
-  ordenados.forEach(function (r) {
-    if (r.seccion !== seccionActual) {
-      seccionActual = r.seccion;
-      hoja.getRange(f, 1, 1, ancho).merge()
+  matriz.forEach(function (fila) {
+    if (fila.seccion !== seccionActual) {
+      seccionActual = fila.seccion;
+      hoja.getRange(f, 1, 1, 9).merge()
           .setValue(titularSeccion(seccionActual))
           .setFontWeight("bold").setBackground(AZUL_SECCION).setFontSize(9);
       f++;
     }
 
-    const calculado = String(r.editable).toUpperCase() === "NO";
-    const fila = [r.nro_renglon, r.etiqueta];
+    hoja.getRange(f, 1).setValue(fila.etiqueta).setWrap(true).setFontSize(9);
 
-    nombresEntidad.forEach(function (ent) {
-      fila.push(sumas[ent][r.nro_renglon] || 0);
-    });
-    fila.push(sumas.TOTAL[r.nro_renglon] || 0);
-
-    hoja.getRange(f, 1, 1, ancho).setValues([fila]).setFontSize(9);
-    hoja.getRange(f, 1).setHorizontalAlignment("center").setFontSize(8);
-    hoja.getRange(f, 2).setWrap(true);
-
-    if (calculado) {
-      hoja.getRange(f, 1, 1, ancho).setFontWeight("bold").setBackground("#F5F5F5");
-    }
+    [[fila.jurBase, 2], [fila.jurRet, 4], [fila.natBase, 6], [fila.natRet, 8]]
+      .forEach(function (par) {
+        if (par[0] === null) {
+          hoja.getRange(f, par[1], 1, 2).setBackground(GRIS_BLOQUEO);
+          return;
+        }
+        hoja.getRange(f, par[1]).setValue(par[0])
+            .setFontSize(8).setHorizontalAlignment("center")
+            .setBackground(AZUL_CABECERA);
+        hoja.getRange(f, par[1] + 1).setValue(sumas[par[0]] || 0)
+            .setBackground(BLANCO);
+      });
 
     f++;
   });
 
-  const ultima = f - 1;
+  totales.forEach(function (t) {
+    const calculado = String(t.editable).toUpperCase() === "NO";
 
-  // ===== Formato =====
-  hoja.getRange(inicioTabla, 1, ultima - inicioTabla + 1, ancho)
+    hoja.getRange(f, 1, 1, 7).merge().setValue(t.etiqueta)
+        .setWrap(true).setFontSize(9)
+        .setFontWeight(calculado ? "bold" : "normal");
+    hoja.getRange(f, 8).setValue(t.nro_renglon)
+        .setFontSize(8).setHorizontalAlignment("center")
+        .setBackground(AZUL_CABECERA);
+    hoja.getRange(f, 9).setValue(sumas[t.nro_renglon] || 0)
+        .setBackground(calculado ? "#EDF3FA" : BLANCO)
+        .setFontWeight(calculado ? "bold" : "normal");
+    f++;
+  });
+
+  const ultima = f - 1;
+  hoja.getRange(inicio, 1, ultima - inicio + 1, 9)
       .setBorder(true, true, true, true, true, true, "#B0B0B0",
                  SpreadsheetApp.BorderStyle.SOLID);
 
-  hoja.getRange(inicioTabla, 3, ultima - inicioTabla + 1, ancho - 2)
-      .setNumberFormat("#,##0").setHorizontalAlignment("right");
+  [3, 5, 7, 9].forEach(function (col) {
+    hoja.getRange(inicio, col, ultima - inicio + 1, 1)
+        .setNumberFormat("#,##0").setHorizontalAlignment("right");
+  });
 
-  // La columna del consolidado se destaca sobre las de origen
-  hoja.getRange(inicioTabla, ancho, ultima - inicioTabla + 1, 1)
-      .setBackground("#E8F0FA").setFontWeight("bold");
+  hoja.setColumnWidth(1, 300);
+  [2, 4, 6, 8].forEach(function (c) { hoja.setColumnWidth(c, 32); });
+  [3, 5, 7, 9].forEach(function (c) { hoja.setColumnWidth(c, 130); });
+}
 
-  hoja.setColumnWidth(1, 70);
-  hoja.setColumnWidth(2, 380);
-  for (let c = 3; c <= ancho; c++) hoja.setColumnWidth(c, 150);
 
-  hoja.setFrozenRows(inicioTabla - 1);
-  hoja.setFrozenColumns(2);
+/**
+ * Consolidado en dos bloques paralelos, como el formulario 300.
+ */
+function consolidadoDobleColumna_(libro, renglones, sumas, def, anio, per,
+                                  idConsolidado, entradas) {
+  const hoja = libro.insertSheet("CONSOLIDADO");
+  let f = encabezadoConsolidado_(hoja, def, anio, per, idConsolidado, entradas, 7);
+
+  const ordenados = renglones.slice().sort(function (a, b) {
+    return a.nro_renglon - b.nro_renglon;
+  });
+
+  const corte = Math.ceil(ordenados.length / 2);
+  const izquierda = ordenados.slice(0, corte);
+  const derecha   = ordenados.slice(corte);
+
+  hoja.getRange(f, 1, 1, 3).merge().setValue("Concepto")
+      .setFontWeight("bold").setBackground(AZUL_CABECERA)
+      .setHorizontalAlignment("center");
+  hoja.getRange(f, 5, 1, 3).merge().setValue("Concepto")
+      .setFontWeight("bold").setBackground(AZUL_CABECERA)
+      .setHorizontalAlignment("center");
+  f++;
+
+  const inicio = f;
+  const filas = Math.max(izquierda.length, derecha.length);
+
+  for (let i = 0; i < filas; i++) {
+    bloqueConsolidado_(hoja, f, 1, izquierda[i], sumas);
+    bloqueConsolidado_(hoja, f, 5, derecha[i], sumas);
+    f++;
+  }
+
+  const ultima = f - 1;
+
+  hoja.getRange(inicio, 1, ultima - inicio + 1, 3)
+      .setBorder(true, true, true, true, true, true, "#B0B0B0",
+                 SpreadsheetApp.BorderStyle.SOLID);
+  hoja.getRange(inicio, 5, ultima - inicio + 1, 3)
+      .setBorder(true, true, true, true, true, true, "#B0B0B0",
+                 SpreadsheetApp.BorderStyle.SOLID);
+
+  [3, 7].forEach(function (col) {
+    hoja.getRange(inicio, col, ultima - inicio + 1, 1)
+        .setNumberFormat("#,##0").setHorizontalAlignment("right");
+  });
+
+  hoja.setColumnWidth(1, 290);
+  hoja.setColumnWidth(2, 40);
+  hoja.setColumnWidth(3, 140);
+  hoja.setColumnWidth(4, 20);
+  hoja.setColumnWidth(5, 290);
+  hoja.setColumnWidth(6, 40);
+  hoja.setColumnWidth(7, 140);
+}
+
+
+/**
+ * Escribe un renglón consolidado dentro de un bloque.
+ */
+function bloqueConsolidado_(hoja, fila, colInicial, renglon, sumas) {
+  if (!renglon) return;
+
+  const calculado = String(renglon.editable).toUpperCase() === "NO";
+
+  hoja.getRange(fila, colInicial)
+      .setValue(renglon.etiqueta)
+      .setWrap(true).setFontSize(9)
+      .setFontWeight(calculado ? "bold" : "normal")
+      .setBackground(calculado ? "#F2F2F2" : BLANCO);
+
+  hoja.getRange(fila, colInicial + 1)
+      .setValue(renglon.nro_renglon)
+      .setFontSize(8).setHorizontalAlignment("center")
+      .setBackground(AZUL_CABECERA);
+
+  hoja.getRange(fila, colInicial + 2)
+      .setValue(sumas[renglon.nro_renglon] || 0)
+      .setBackground(calculado ? "#EDF3FA" : BLANCO)
+      .setFontWeight(calculado ? "bold" : "normal");
 }
 
 
