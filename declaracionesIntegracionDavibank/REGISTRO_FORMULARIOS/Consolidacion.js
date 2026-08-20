@@ -562,3 +562,27 @@ function buscarConsolidadoVigente(codFormulario, periodoTxt) {
 
   return { encontrado: false };
 }
+
+/**
+ * Muestra el contenido de ENTREGAS para diagnosticar
+ * por qué el consolidado no encuentra las cargas.
+ */
+function diagnosticarEntregas() {
+  const datos = SpreadsheetApp.openById(ID_OPERACION)
+                  .getSheetByName("ENTREGAS").getDataRange().getValues();
+
+  Logger.log("--- ENTREGAS REGISTRADAS ---");
+  Logger.log("Total de filas: " + (datos.length - 1));
+  Logger.log("");
+
+  for (let i = 1; i < datos.length; i++) {
+    Logger.log(
+      "Radicado: " + datos[i][0] +
+      " | Formulario: [" + datos[i][2] + "]" +
+      " | Entidad: [" + datos[i][3] + "]" +
+      " | Año: [" + datos[i][4] + "] (" + typeof datos[i][4] + ")" +
+      " | Periodo: [" + datos[i][5] + "] (" + typeof datos[i][5] + ")" +
+      " | Estado: [" + datos[i][10] + "]"
+    );
+  }
+}
