@@ -1,16 +1,3 @@
-/**
- * ============================================================
- * CONSOLIDACIÓN
- *
- * Suma renglón por renglón las cargas aprobadas de todas las
- * entidades y produce un borrador con la misma disposición
- * del formulario original.
- * ============================================================
- */
-
-/**
- * Genera el consolidado de un formulario y periodo.
- */
 function generarConsolidado(codFormulario, periodoTxt) {
   const anio = periodoTxt.split("-")[0];
   const per  = periodoTxt.split("-")[1];
@@ -26,6 +13,7 @@ function generarConsolidado(codFormulario, periodoTxt) {
   const catalogo  = leerCatalogoValidacion_(codFormulario, def.version);
   const renglones = leerRenglones_(codFormulario, def.version);
   const sumas     = sumarEntradas_(entradas, catalogo);
+  const detalle   = agruparDetalle_(entradas);
 
   const idConsolidado = generarIdConsolidado_();
 
@@ -35,6 +23,7 @@ function generarConsolidado(codFormulario, periodoTxt) {
   if (def.disposicion === "MATRIZ") {
     consolidadoMatriz_(libro, renglones, sumas, def, anio, per,
                        idConsolidado, entradas);
+    consolidadoExterior_(libro, renglones, sumas, detalle);
   } else {
     consolidadoDobleColumna_(libro, renglones, sumas, def, anio, per,
                              idConsolidado, entradas);
@@ -42,6 +31,8 @@ function generarConsolidado(codFormulario, periodoTxt) {
 
   const porDefecto = libro.getSheetByName("Hoja 1") || libro.getSheetByName("Sheet1");
   if (porDefecto) libro.deleteSheet(porDefecto);
+
+  libro.setActiveSheet(libro.getSheetByName("CONSOLIDADO"));
 
   const archivo = DriveApp.getFileById(libro.getId());
   DriveApp.getFolderById(CARPETA_CONSOLIDADOS).addFile(archivo);
@@ -117,8 +108,51 @@ function sumarEntradas_(entradas, catalogo) {
 
 
 /**
+ * Agrupa el detalle de exterior de todas las entidades.
+ * Las filas con igual convenio, concepto, tipo de persona,
+ * país y tarifa se suman en una sola.
+ */
+function agruparDetalle_(entradas) {
+  const libro = SpreadsheetApp.openById(ID_OPERACION);
+  const hoja = libro.getSheetByName("DATOS_DETALLE");
+  if (!hoja || hoja.getLastRow() <= 1) return [];
+
+  const datos = hoja.getDataRange().getValues();
+  const radicados = entradas.map(function (e) { return e.radicado; });
+  const grupos = {};
+  const orden = [];
+
+  for (let i = 1; i < datos.length; i++) {
+    if (radicados.indexOf(datos[i][0]) < 0) continue;
+    if (datos[i][2] !== "EXTERIOR") continue;
+
+    const clave = [datos[i][4], datos[i][5], datos[i][6],
+                   datos[i][7], datos[i][10]].join("|");
+
+    if (!grupos[clave]) {
+      grupos[clave] = {
+        convenio:      datos[i][4],
+        concepto_pago: datos[i][5],
+        tipo_persona:  datos[i][6],
+        pais:          datos[i][7],
+        cod_pais:      datos[i][8],
+        tarifa:        datos[i][10],
+        base:          0,
+        retencion:     0
+      };
+      orden.push(clave);
+    }
+
+    grupos[clave].base      += aNumero(datos[i][9]);
+    grupos[clave].retencion += aNumero(datos[i][11]);
+  }
+
+  return orden.map(function (k) { return grupos[k]; });
+}
+
+
+/**
  * Escribe el encabezado del borrador consolidado.
- * Devuelve la siguiente fila libre.
  */
 function encabezadoConsolidado_(hoja, def, anio, per, idConsolidado,
                                 entradas, ancho) {
@@ -280,6 +314,93 @@ function consolidadoMatriz_(libro, renglones, sumas, def, anio, per,
 
 
 /**
+ * Hoja de exterior del consolidado, con el detalle ya agrupado.
+ */
+function consolidadoExterior_(libro, renglones, sumas, detalle) {
+  const totalesExt = renglones.filter(function (r) {
+    return r.seccion === "TOTALES_EXTERIOR";
+  }).sort(function (a, b) { return a.nro_renglon - b.nro_renglon; });
+
+  if (!totalesExt.length) return;
+
+  const hoja = libro.insertSheet("EXTERIOR");
+
+  hoja.getRange(1, 1, 1, 8).merge()
+      .setValue("Pagos o abonos en cuenta al exterior - consolidado")
+      .setFontSize(12).setFontWeight("bold")
+      .setBackground(AZUL_TITULO).setFontColor(BLANCO)
+      .setHorizontalAlignment("center");
+  hoja.setRowHeight(1, 28);
+
+  hoja.getRange(2, 1, 1, 8).merge()
+      .setValue("Las filas de las entidades se agruparon por convenio, " +
+                "concepto, tipo de persona, país y tarifa.")
+      .setFontSize(9).setFontColor("#666666")
+      .setHorizontalAlignment("center");
+
+  hoja.getRange(4, 1, 1, 8).setValues([[
+    "141. A países", "142. Concepto de pago", "143. Tipo de persona",
+    "144. País", "Cód.", "145. Pagos o abonos en cuenta",
+    "146. Tarifa (%)", "147. Valor retención"
+  ]]).setBackground(AZUL_CABECERA).setFontWeight("bold").setFontSize(9)
+     .setWrap(true).setHorizontalAlignment("center");
+  hoja.setRowHeight(4, 34);
+
+  let f = 5;
+
+  if (detalle.length) {
+    const filas = detalle.map(function (d) {
+      return [d.convenio, d.concepto_pago, d.tipo_persona, d.pais,
+              d.cod_pais, d.base, d.tarifa, d.retencion];
+    });
+
+    hoja.getRange(f, 1, filas.length, 8).setValues(filas).setFontSize(9);
+    hoja.getRange(f, 6, filas.length, 1).setNumberFormat("#,##0");
+    hoja.getRange(f, 8, filas.length, 1).setNumberFormat("#,##0");
+    hoja.getRange(f, 7, filas.length, 1).setNumberFormat("0.00%");
+    hoja.getRange(f, 1, filas.length, 8)
+        .setBorder(true, true, true, true, true, true, "#B0B0B0",
+                   SpreadsheetApp.BorderStyle.SOLID);
+    f += filas.length;
+  } else {
+    hoja.getRange(f, 1, 1, 8).merge()
+        .setValue("Ninguna entidad reportó pagos al exterior en el período.")
+        .setFontSize(9).setFontColor("#888888")
+        .setHorizontalAlignment("center");
+    f++;
+  }
+
+  f++;
+
+  hoja.getRange(f, 1, 1, 8).merge().setValue("Total pagos al exterior")
+      .setBackground(AZUL_SECCION).setFontWeight("bold");
+  f++;
+
+  const inicioTotales = f;
+
+  totalesExt.forEach(function (t) {
+    hoja.getRange(f, 1, 1, 6).merge().setValue(t.etiqueta).setFontSize(9);
+    hoja.getRange(f, 7).setValue(t.nro_renglon)
+        .setFontSize(8).setHorizontalAlignment("center")
+        .setBackground(AZUL_CABECERA);
+    hoja.getRange(f, 8).setValue(sumas[t.nro_renglon] || 0)
+        .setBackground("#EDF3FA").setFontWeight("bold")
+        .setNumberFormat("#,##0");
+    f++;
+  });
+
+  hoja.getRange(inicioTotales, 1, f - inicioTotales, 8)
+      .setBorder(true, true, true, true, true, true, "#B0B0B0",
+                 SpreadsheetApp.BorderStyle.SOLID);
+
+  [120, 90, 90, 160, 60, 150, 80, 150].forEach(function (ancho, i) {
+    hoja.setColumnWidth(i + 1, ancho);
+  });
+  hoja.setFrozenRows(4);
+}
+
+
+/**
  * Consolidado en dos bloques paralelos, como el formulario 300.
  */
 function consolidadoDobleColumna_(libro, renglones, sumas, def, anio, per,
@@ -387,9 +508,6 @@ function registrarConsolidado_(idConsolidado, codFormulario, anio, per,
 }
 
 
-/**
- * Devuelve la hoja de consolidados, creándola la primera vez.
- */
 function obtenerHojaConsolidados_() {
   const libro = SpreadsheetApp.openById(ID_OPERACION);
   let hoja = libro.getSheetByName("CONSOLIDADOS");
@@ -417,9 +535,6 @@ function generarIdConsolidado_() {
 }
 
 
-/**
- * Busca el consolidado vigente de un formulario y periodo.
- */
 function buscarConsolidadoVigente(codFormulario, periodoTxt) {
   const anio = periodoTxt.split("-")[0];
   const per  = periodoTxt.split("-")[1];

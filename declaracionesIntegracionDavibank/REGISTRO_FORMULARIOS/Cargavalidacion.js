@@ -11,6 +11,7 @@ function procesarCarga(idArchivo) {
     const def      = definicionFormulario(meta.cod_formulario);
     const catalogo = leerCatalogoValidacion_(meta.cod_formulario, meta.version);
     const valores  = leerValores_(libroCarga, def.disposicion, catalogo);
+    const detalle  = leerDetalleExterior_(libroCarga);
 
     const errores  = validarCarga_(catalogo, valores);
     const aceptada = errores.length === 0;
@@ -28,6 +29,7 @@ function procesarCarga(idArchivo) {
 
     if (aceptada) {
       guardarDatos_(radicado, meta, valores);
+      guardarDetalle_(radicado, meta, detalle);
     } else {
       registrarErrores_(radicado, errores);
     }
@@ -37,8 +39,9 @@ function procesarCarga(idArchivo) {
       radicado: radicado,
       errores: errores,
       resumen: aceptada
-        ? "Se cargaron " + Object.keys(valores).length + " renglones. " +
-          "Los totales fueron calculados por el sistema."
+        ? "Se cargaron " + Object.keys(valores).length + " renglones" +
+          (detalle.length ? " y " + detalle.length + " filas de exterior" : "") +
+          ". Los totales fueron calculados por el sistema."
         : "No se guardó ningún dato. Se encontraron " + errores.length + " inconsistencias."
     };
 
@@ -166,7 +169,6 @@ function leerValores_(libro, disposicion, catalogo) {
   const datos = hoja.getDataRange().getValues();
   const valores = {};
 
-  // Se parte de cero para todos los renglones esperados
   Object.keys(catalogo).forEach(function (nro) {
     valores[parseInt(nro, 10)] = 0;
   });
@@ -215,6 +217,45 @@ function leerValores_(libro, disposicion, catalogo) {
   }
 
   return valores;
+}
+
+
+/**
+ * Lee las filas de detalle de la hoja de exterior.
+ * Su diligenciamiento es opcional.
+ */
+function leerDetalleExterior_(libro) {
+  const hoja = libro.getSheetByName("EXTERIOR");
+  if (!hoja) return [];
+
+  const datos = hoja.getDataRange().getValues();
+  const filas = [];
+
+  for (let i = 0; i < datos.length; i++) {
+    const convenio = String(datos[i][0]).trim().toUpperCase();
+
+    // Solo se toman las filas con un convenio válido diligenciado
+    if (convenio !== "SIN CONVENIO" && convenio !== "CON CONVENIO") continue;
+
+    const base = aNumero(datos[i][5]);
+    const retencion = aNumero(datos[i][7]);
+
+    // Las filas sin cifras no aportan nada al consolidado
+    if (base === 0 && retencion === 0) continue;
+
+    filas.push({
+      convenio:      convenio,
+      concepto_pago: String(datos[i][1]).trim(),
+      tipo_persona:  String(datos[i][2]).trim(),
+      pais:          String(datos[i][3]).trim(),
+      cod_pais:      String(datos[i][4]).trim(),
+      base:          base,
+      tarifa:        aNumero(datos[i][6]),
+      retencion:     retencion
+    });
+  }
+
+  return filas;
 }
 
 
@@ -358,6 +399,26 @@ function guardarDatos_(radicado, meta, valores) {
     hoja.getRange(hoja.getLastRow() + 1, 1, filas.length, filas[0].length)
         .setValues(filas);
   }
+}
+
+
+/**
+ * Guarda las filas de detalle de exterior.
+ */
+function guardarDetalle_(radicado, meta, detalle) {
+  if (!detalle.length) return;
+
+  const hoja = SpreadsheetApp.openById(ID_OPERACION).getSheetByName("DATOS_DETALLE");
+  const ahora = new Date();
+
+  const filas = detalle.map(function (d, i) {
+    return [radicado, meta.cod_formulario, "EXTERIOR", i + 1,
+            d.convenio, d.concepto_pago, d.tipo_persona, d.pais, d.cod_pais,
+            d.base, d.tarifa, d.retencion, ahora];
+  });
+
+  hoja.getRange(hoja.getLastRow() + 1, 1, filas.length, filas[0].length)
+      .setValues(filas);
 }
 
 
