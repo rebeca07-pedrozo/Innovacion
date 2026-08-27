@@ -53,10 +53,6 @@ function generarConsolidado(codFormulario, periodoTxt) {
   };
 }
 
-
-/**
- * Devuelve el radicado aprobado más reciente de cada entidad.
- */
 function radicadosAprobados_(codFormulario, anio, per) {
   const datos = SpreadsheetApp.openById(ID_OPERACION)
                   .getSheetByName("ENTREGAS").getDataRange().getValues();
@@ -105,13 +101,6 @@ function sumarEntradas_(entradas, catalogo) {
 
   return sumas;
 }
-
-
-/**
- * Agrupa el detalle de exterior de todas las entidades.
- * Las filas con igual convenio, concepto, tipo de persona,
- * país y tarifa se suman en una sola.
- */
 function agruparDetalle_(entradas) {
   const libro = SpreadsheetApp.openById(ID_OPERACION);
   const hoja = libro.getSheetByName("DATOS_DETALLE");
@@ -218,10 +207,6 @@ function encabezadoConsolidado_(hoja, def, anio, per, idConsolidado,
   return f + 1;
 }
 
-
-/**
- * Consolidado con disposición de matriz, como el formulario 350.
- */
 function consolidadoMatriz_(libro, renglones, sumas, def, anio, per,
                             idConsolidado, entradas) {
   const hoja = libro.insertSheet("CONSOLIDADO");
@@ -311,11 +296,6 @@ function consolidadoMatriz_(libro, renglones, sumas, def, anio, per,
   [2, 4, 6, 8].forEach(function (c) { hoja.setColumnWidth(c, 32); });
   [3, 5, 7, 9].forEach(function (c) { hoja.setColumnWidth(c, 130); });
 }
-
-
-/**
- * Hoja de exterior del consolidado, con el detalle ya agrupado.
- */
 function consolidadoExterior_(libro, renglones, sumas, detalle) {
   const totalesExt = renglones.filter(function (r) {
     return r.seccion === "TOTALES_EXTERIOR";
@@ -398,11 +378,6 @@ function consolidadoExterior_(libro, renglones, sumas, detalle) {
   });
   hoja.setFrozenRows(4);
 }
-
-
-/**
- * Consolidado en dos bloques paralelos, como el formulario 300.
- */
 function consolidadoDobleColumna_(libro, renglones, sumas, def, anio, per,
                                   idConsolidado, entradas) {
   const hoja = libro.insertSheet("CONSOLIDADO");
@@ -563,10 +538,6 @@ function buscarConsolidadoVigente(codFormulario, periodoTxt) {
   return { encontrado: false };
 }
 
-/**
- * Muestra el contenido de ENTREGAS para diagnosticar
- * por qué el consolidado no encuentra las cargas.
- */
 function diagnosticarEntregas() {
   const datos = SpreadsheetApp.openById(ID_OPERACION)
                   .getSheetByName("ENTREGAS").getDataRange().getValues();

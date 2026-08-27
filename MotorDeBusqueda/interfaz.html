@@ -13,12 +13,8 @@
       --text-muted: #6b6b6b;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: #FAF7F8;
-      color: var(--text-dark);
-    }
+    body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #FAF7F8; color: var(--text-dark); }
+
     header {
       background: linear-gradient(135deg, var(--davivienda-red), var(--davivienda-red-dark));
       padding: 26px 32px;
@@ -31,82 +27,84 @@
     header h1 { color: white; font-size: 21px; margin: 0; font-weight: 600; }
     header p { color: #ffd7de; margin: 2px 0 0 0; font-size: 13px; }
 
-    .contenedor {
-      max-width: 880px;
-      margin: 0 auto;
-      padding: 32px 20px 60px;
-    }
-    .buscador {
+    .tabs {
       display: flex;
-      gap: 10px;
-      margin-bottom: 22px;
+      gap: 6px;
+      max-width: 880px;
+      margin: 24px auto 0;
+      padding: 0 20px;
     }
-    .buscador input {
+    .tab-btn {
       flex: 1;
-      padding: 14px 18px;
-      border-radius: 30px;
-      border: 2px solid var(--davivienda-pink);
-      font-size: 15px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    .buscador input:focus { border-color: var(--davivienda-red); }
-    .buscador button {
-      padding: 14px 26px;
-      border-radius: 30px;
+      padding: 12px 14px;
       border: none;
-      background: var(--davivienda-red);
-      color: white;
+      background: white;
+      color: var(--text-muted);
       font-weight: 600;
+      font-size: 13.5px;
+      border-radius: 10px 10px 0 0;
       cursor: pointer;
-      transition: background 0.2s;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab-btn.activo {
+      color: var(--davivienda-red-dark);
+      border-bottom: 3px solid var(--davivienda-red);
+      background: white;
+    }
+
+    .contenedor { max-width: 880px; margin: 0 auto; padding: 20px 20px 60px; background: white; border-radius: 0 0 12px 12px; }
+
+    .buscador { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .buscador input[type="text"] {
+      flex: 1; min-width: 220px; padding: 14px 18px; border-radius: 30px;
+      border: 2px solid var(--davivienda-pink); font-size: 15px; outline: none; transition: border-color 0.2s;
+    }
+    .buscador input[type="text"]:focus { border-color: var(--davivienda-red); }
+    .buscador select {
+      padding: 14px 16px; border-radius: 30px; border: 2px solid var(--davivienda-pink);
+      font-size: 14px; background: white; color: var(--text-dark); outline: none;
+    }
+    .buscador button {
+      padding: 14px 26px; border-radius: 30px; border: none; background: var(--davivienda-red);
+      color: white; font-weight: 600; cursor: pointer; transition: background 0.2s;
     }
     .buscador button:hover { background: var(--davivienda-red-dark); }
 
     .estado { color: var(--text-muted); font-size: 13px; margin-bottom: 14px; }
 
     .resultado {
-      background: var(--davivienda-pink-card);
-      border-left: 4px solid var(--davivienda-red);
-      border-radius: 10px;
-      padding: 16px 20px;
-      margin-bottom: 14px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      background: var(--davivienda-pink-card); border-left: 4px solid var(--davivienda-red);
+      border-radius: 10px; padding: 16px 20px; margin-bottom: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     }
-    .resultado .meta {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    .resultado .archivo {
-      font-weight: 600;
-      color: var(--davivienda-red-dark);
-      font-size: 13.5px;
-    }
+    .resultado .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 10px; flex-wrap: wrap; }
+    .resultado .archivo { font-weight: 600; color: var(--davivienda-red-dark); font-size: 13.5px; }
     .resultado .pagina {
-      font-size: 11.5px;
-      background: var(--davivienda-red);
-      color: white;
-      padding: 3px 10px;
-      border-radius: 12px;
-      white-space: nowrap;
+      font-size: 11.5px; background: var(--davivienda-red); color: white;
+      padding: 3px 10px; border-radius: 12px; white-space: nowrap;
     }
     .resultado .fragmento { font-size: 14px; line-height: 1.55; }
-    .resultado mark {
-      background: #FFD7DE;
-      color: var(--davivienda-red-dark);
-      padding: 1px 3px;
-      border-radius: 3px;
-      font-weight: 600;
+    .resultado mark { background: #FFD7DE; color: var(--davivienda-red-dark); padding: 1px 3px; border-radius: 3px; font-weight: 600; }
+
+    .btn-pdf {
+      display: inline-block; margin-top: 10px; font-size: 12.5px; font-weight: 600;
+      color: var(--davivienda-red-dark); text-decoration: none; border: 1.5px solid var(--davivienda-red);
+      padding: 5px 12px; border-radius: 20px; transition: all 0.2s;
     }
-    .vacio, .cargando {
-      text-align: center;
-      color: var(--text-muted);
-      padding: 36px 0;
-      font-size: 14px;
+    .btn-pdf:hover { background: var(--davivienda-red); color: white; }
+    .sin-pdf { font-size: 12px; color: var(--text-muted); margin-top: 8px; display: inline-block; }
+
+    .tag-tipo {
+      display: inline-block; font-size: 11px; font-weight: 600; background: var(--davivienda-red);
+      color: white; padding: 2px 10px; border-radius: 10px; margin-bottom: 6px;
     }
+    .titulo-doc { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
+    .fecha-doc { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+
+    .vacio, .cargando { text-align: center; color: var(--text-muted); padding: 36px 0; font-size: 14px; }
     .cargando { color: var(--davivienda-red-dark); }
+    .panel { display: none; }
+    .panel.activo { display: block; }
   </style>
 </head>
 <body>
@@ -118,48 +116,95 @@
     </div>
   </header>
 
+  <div class="tabs">
+    <button class="tab-btn activo" onclick="cambiarTab('normativas')">Normativas propias</button>
+    <button class="tab-btn" onclick="cambiarTab('compendio')">Compendio DIAN</button>
+    <button class="tab-btn" onclick="cambiarTab('sentencias')">Sentencias</button>
+  </div>
+
   <div class="contenedor">
-    <div class="buscador">
-      <input type="text" id="inputBusqueda" placeholder="Buscar término (ej. diferencia en cambio, estampillas...)"
-             onkeydown="if(event.key==='Enter') buscar()">
-      <button onclick="buscar()">Buscar</button>
+
+    <!-- PANEL 1: Normativas propias -->
+    <div id="panel-normativas" class="panel activo">
+      <div class="buscador">
+        <input type="text" id="inputNormativas" placeholder="Buscar término (ej. diferencia en cambio, estampillas...)"
+               onkeydown="if(event.key==='Enter') buscarNormativas()">
+        <button onclick="buscarNormativas()">Buscar</button>
+      </div>
+      <div id="estadoNormativas" class="estado"></div>
+      <div id="resultadosNormativas"></div>
     </div>
 
-    <div id="estado" class="estado"></div>
-    <div id="resultados"></div>
+    <!-- PANEL 2: Compendio DIAN -->
+    <div id="panel-compendio" class="panel">
+      <div class="buscador">
+        <input type="text" id="inputCompendio" placeholder="Buscar en título o resumen..."
+               onkeydown="if(event.key==='Enter') buscarCompendioUI()">
+        <select id="filtroTipoCompendio"><option value="TODOS">Todos los impuestos</option></select>
+        <button onclick="buscarCompendioUI()">Buscar</button>
+      </div>
+      <div id="estadoCompendio" class="estado"></div>
+      <div id="resultadosCompendio"></div>
+    </div>
+
+    <!-- PANEL 3: Sentencias -->
+    <div id="panel-sentencias" class="panel">
+      <div class="buscador">
+        <input type="text" id="inputSentencias" placeholder="Buscar en título o resumen..."
+               onkeydown="if(event.key==='Enter') buscarSentenciasUI()">
+        <select id="filtroTipoSentencias"><option value="TODOS">Todos los impuestos</option></select>
+        <button onclick="buscarSentenciasUI()">Buscar</button>
+      </div>
+      <div id="estadoSentencias" class="estado"></div>
+      <div id="resultadosSentencias"></div>
+    </div>
+
   </div>
 
   <script>
-    function buscar() {
-      const termino = document.getElementById('inputBusqueda').value.trim();
-      const contResultados = document.getElementById('resultados');
-      const estado = document.getElementById('estado');
+    // --- Manejo de pestañas ---
+    function cambiarTab(nombre) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('activo'));
+      document.getElementById('panel-' + nombre).classList.add('activo');
+      event.target.classList.add('activo');
+    }
 
-      if (termino.length < 2) {
-        estado.textContent = "Escribe al menos 2 caracteres.";
-        contResultados.innerHTML = "";
-        return;
-      }
+    // --- Poblar los desplegables de tipo de impuesto al cargar ---
+    window.onload = function() {
+      google.script.run.withSuccessHandler(tipos => llenarSelect_('filtroTipoCompendio', tipos))
+        .obtenerTiposImpuesto('Compendio Completo Doctrina y Conceptos DIAN');
+      google.script.run.withSuccessHandler(tipos => llenarSelect_('filtroTipoSentencias', tipos))
+        .obtenerTiposImpuesto('Sentencias');
+    };
 
+    function llenarSelect_(idSelect, tipos) {
+      const select = document.getElementById(idSelect);
+      tipos.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t; opt.textContent = t;
+        select.appendChild(opt);
+      });
+    }
+
+    // --- PANEL 1: Normativas propias ---
+    function buscarNormativas() {
+      const termino = document.getElementById('inputNormativas').value.trim();
+      const estado = document.getElementById('estadoNormativas');
+      const cont = document.getElementById('resultadosNormativas');
+
+      if (termino.length < 2) { estado.textContent = "Escribe al menos 2 caracteres."; cont.innerHTML = ""; return; }
       estado.innerHTML = '<div class="cargando">Buscando…</div>';
-      contResultados.innerHTML = "";
+      cont.innerHTML = "";
 
       google.script.run
-        .withSuccessHandler(mostrarResultados)
-        .withFailureHandler(mostrarError)
+        .withSuccessHandler(data => mostrarResultadosNormativas_(data, estado, cont))
+        .withFailureHandler(err => mostrarError_(err, estado, cont))
         .buscarTermino(termino);
     }
 
-    function mostrarResultados(data) {
-      const estado = document.getElementById('estado');
-      const cont = document.getElementById('resultados');
-
-      if (data.total === 0) {
-        estado.textContent = "";
-        cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>';
-        return;
-      }
-
+    function mostrarResultadosNormativas_(data, estado, cont) {
+      if (data.total === 0) { estado.textContent = ""; cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>'; return; }
       estado.textContent = data.total + " resultado(s) encontrado(s).";
       cont.innerHTML = data.resultados.map(r => `
         <div class="resultado">
@@ -168,14 +213,62 @@
             <span class="pagina">Pág. ${r.pagina}</span>
           </div>
           <div class="fragmento">${r.fragmento}</div>
+          ${r.urlPdf
+            ? `<a class="btn-pdf" href="${r.urlPdf}" target="_blank">Abrir PDF ↗</a>`
+            : `<span class="sin-pdf">PDF no localizado en Drive</span>`}
         </div>
       `).join("");
     }
 
-    function mostrarError(error) {
-      document.getElementById('estado').textContent = "";
-      document.getElementById('resultados').innerHTML =
-        '<div class="vacio">Ocurrió un error: ' + error.message + '</div>';
+    // --- PANEL 2: Compendio DIAN ---
+    function buscarCompendioUI() {
+      const termino = document.getElementById('inputCompendio').value.trim();
+      const tipo = document.getElementById('filtroTipoCompendio').value;
+      const estado = document.getElementById('estadoCompendio');
+      const cont = document.getElementById('resultadosCompendio');
+
+      estado.innerHTML = '<div class="cargando">Buscando…</div>';
+      cont.innerHTML = "";
+
+      google.script.run
+        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
+        .withFailureHandler(err => mostrarError_(err, estado, cont))
+        .buscarCompendio(termino, tipo);
+    }
+
+    // --- PANEL 3: Sentencias ---
+    function buscarSentenciasUI() {
+      const termino = document.getElementById('inputSentencias').value.trim();
+      const tipo = document.getElementById('filtroTipoSentencias').value;
+      const estado = document.getElementById('estadoSentencias');
+      const cont = document.getElementById('resultadosSentencias');
+
+      estado.innerHTML = '<div class="cargando">Buscando…</div>';
+      cont.innerHTML = "";
+
+      google.script.run
+        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
+        .withFailureHandler(err => mostrarError_(err, estado, cont))
+        .buscarSentencias(termino, tipo);
+    }
+
+    // --- Renderizado compartido para Compendio y Sentencias (misma estructura de columnas) ---
+    function mostrarResultadosDoctrina_(data, estado, cont) {
+      if (data.total === 0) { estado.textContent = ""; cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>'; return; }
+      estado.textContent = data.total + " resultado(s) encontrado(s).";
+      cont.innerHTML = data.resultados.map(r => `
+        <div class="resultado">
+          <span class="tag-tipo">${r.tipoImpuesto || "Sin clasificar"}</span>
+          <div class="titulo-doc">${r.numero ? r.numero + " — " : ""}${r.titulo}</div>
+          <div class="fecha-doc">${r.fecha}</div>
+          <div class="fragmento">${r.resumen}</div>
+        </div>
+      `).join("");
+    }
+
+    function mostrarError_(error, estado, cont) {
+      estado.textContent = "";
+      cont.innerHTML = '<div class="vacio">Ocurrió un error: ' + error.message + '</div>';
     }
   </script>
 </body>
