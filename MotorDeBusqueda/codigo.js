@@ -1,11 +1,12 @@
-
 const CONFIG = {
-  SHEET_NAME: "texto_detallado",           
+  // --- Normativas propias (fuente de APOYO, no visible como categoría) ---
+  SHEET_NAME: "texto_detallado",              // <-- ajusta al nombre real de tu pestaña
   COL_ARCHIVO: "nombre_archivo",
   COL_RUTA: "ruta_completa",
   COL_PAGINA: "pagina",
   COL_TEXTO: "texto",
 
+  // --- Compendio DIAN / Sentencias (Excel del abogado) ---
   COMPENDIO_SPREADSHEET_ID: "1R4gZpTwd1PBaE8yj3ruJezQYoqmrOUuGUfSRmMOFtGE",
   HOJA_COMPENDIO: "Compendio Completo Doctrina y Conceptos DIAN",
   HOJA_SENTENCIAS: "Sentencias",
@@ -16,6 +17,7 @@ const CONFIG = {
   COL_RESUMEN: "Resumen",
 
   MAX_RESULTADOS: 50,
+  MAX_RESULTADOS_APOYO: 5,
   CARACTERES_CONTEXTO: 240
 };
 
@@ -25,11 +27,28 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-function buscarTermino(termino) {
-  if (!termino || termino.trim().length < 2) return { resultados: [], total: 0 };
+// ============================================================
+// BÚSQUEDAS PRINCIPALES (lo que ve el usuario como categoría)
+// Cada una devuelve resultados principales + apoyo interno (normativas propias)
+// ============================================================
+function buscarCompendio(termino, tipoImpuesto) {
+  const principal = buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, tipoImpuesto);
+  const apoyo = (termino && termino.trim().length >= 2) ? buscarApoyoInterno_(termino) : { resultados: [], total: 0 };
+  return { principal: principal, apoyo: apoyo };
+}
 
+function buscarSentencias(termino, tipoImpuesto) {
+  const principal = buscarEnHojaExterna_(CONFIG.HOJA_SENTENCIAS, termino, tipoImpuesto);
+  const apoyo = (termino && termino.trim().length >= 2) ? buscarApoyoInterno_(termino) : { resultados: [], total: 0 };
+  return { principal: principal, apoyo: apoyo };
+}
+
+// ============================================================
+// Fuente interna de apoyo (antes "Normativas propias") — NO visible como categoría
+// ============================================================
+function buscarApoyoInterno_(termino) {
   const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
-  if (!hoja) throw new Error("No se encontró la hoja '" + CONFIG.SHEET_NAME + "'.");
+  if (!hoja) return { resultados: [], total: 0 }; // si no existe, simplemente no hay apoyo, no rompe nada
 
   const datos = hoja.getDataRange().getValues();
   const encabezados = datos[0].map(h => String(h).trim());
@@ -37,10 +56,7 @@ function buscarTermino(termino) {
   const idxArchivo = encabezados.indexOf(CONFIG.COL_ARCHIVO);
   const idxPagina  = encabezados.indexOf(CONFIG.COL_PAGINA);
   const idxTexto   = encabezados.indexOf(CONFIG.COL_TEXTO);
-
-  if (idxArchivo === -1 || idxPagina === -1 || idxTexto === -1) {
-    throw new Error("No se encontraron las columnas esperadas en '" + CONFIG.SHEET_NAME + "'.");
-  }
+  if (idxArchivo === -1 || idxPagina === -1 || idxTexto === -1) return { resultados: [], total: 0 };
 
   const terminoNorm = quitarTildes_(termino.trim());
   const resultados = [];
@@ -62,21 +78,16 @@ function buscarTermino(termino) {
         urlPdf: obtenerUrlDrivePorNombre_(nombreArchivo)
       });
 
-      if (resultados.length >= CONFIG.MAX_RESULTADOS) break;
+      if (resultados.length >= CONFIG.MAX_RESULTADOS_APOYO) break;
     }
   }
 
   return { resultados: resultados, total: resultados.length };
 }
 
-function buscarCompendio(termino, tipoImpuesto) {
-  return buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, tipoImpuesto);
-}
-
-function buscarSentencias(termino, tipoImpuesto) {
-  return buscarEnHojaExterna_(CONFIG.HOJA_SENTENCIAS, termino, tipoImpuesto);
-}
-
+// ============================================================
+// Búsqueda genérica sobre Compendio DIAN / Sentencias
+// ============================================================
 function buscarEnHojaExterna_(nombreHoja, termino, tipoImpuesto) {
   const tieneTermino = termino && termino.trim().length >= 2;
   const tieneFiltro = tipoImpuesto && tipoImpuesto !== "TODOS";
@@ -126,7 +137,7 @@ function buscarEnHojaExterna_(nombreHoja, termino, tipoImpuesto) {
   return { resultados: resultados, total: resultados.length };
 }
 
-
+// Devuelve los valores únicos de "Tipo de Impuesto Evaluado" para poblar el desplegable
 function obtenerTiposImpuesto(nombreHoja) {
   const ss = SpreadsheetApp.openById(CONFIG.COMPENDIO_SPREADSHEET_ID);
   const hoja = ss.getSheetByName(nombreHoja);
@@ -145,6 +156,9 @@ function obtenerTiposImpuesto(nombreHoja) {
   return Array.from(set).sort();
 }
 
+// ============================================================
+// UTILIDADES
+// ============================================================
 function quitarTildes_(texto) {
   return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
@@ -175,6 +189,7 @@ function formatearFecha_(valor) {
   return String(valor);
 }
 
+// Busca el archivo en Drive por nombre y devuelve su URL. Usa caché (6h) para no repetir la búsqueda.
 function obtenerUrlDrivePorNombre_(nombreArchivo) {
   const cache = CacheService.getScriptCache();
   const claveCache = "url_" + nombreArchivo;
@@ -189,6 +204,7 @@ function obtenerUrlDrivePorNombre_(nombreArchivo) {
       return url;
     }
   } catch (e) {
+    // si falla, seguimos sin romper la búsqueda principal
   }
   cache.put(claveCache, "NO_ENCONTRADO", 21600);
   return null;
