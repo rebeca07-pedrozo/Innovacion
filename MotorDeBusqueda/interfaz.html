@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --davivienda-red: #E4002B;
+      --davivienda-red-dark: #A3001F;
+      --davivienda-pink: #FDEBEF;
+      --davivienda-pink-card: #FFF5F7;
+      --text-dark: #2B2B2B;
+      --text-muted: #6b6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #FAF7F8;
+      color: var(--text-dark);
+    }
+    header {
+      background: linear-gradient(135deg, var(--davivienda-red), var(--davivienda-red-dark));
+      padding: 26px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    }
+    header img { height: 40px; }
+    header h1 { color: white; font-size: 21px; margin: 0; font-weight: 600; }
+    header p { color: #ffd7de; margin: 2px 0 0 0; font-size: 13px; }
+
+    .contenedor {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+    .buscador {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .buscador input {
+      flex: 1;
+      padding: 14px 18px;
+      border-radius: 30px;
+      border: 2px solid var(--davivienda-pink);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .buscador input:focus { border-color: var(--davivienda-red); }
+    .buscador button {
+      padding: 14px 26px;
+      border-radius: 30px;
+      border: none;
+      background: var(--davivienda-red);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .buscador button:hover { background: var(--davivienda-red-dark); }
+
+    .estado { color: var(--text-muted); font-size: 13px; margin-bottom: 14px; }
+
+    .resultado {
+      background: var(--davivienda-pink-card);
+      border-left: 4px solid var(--davivienda-red);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+    .resultado .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .resultado .archivo {
+      font-weight: 600;
+      color: var(--davivienda-red-dark);
+      font-size: 13.5px;
+    }
+    .resultado .pagina {
+      font-size: 11.5px;
+      background: var(--davivienda-red);
+      color: white;
+      padding: 3px 10px;
+      border-radius: 12px;
+      white-space: nowrap;
+    }
+    .resultado .fragmento { font-size: 14px; line-height: 1.55; }
+    .resultado mark {
+      background: #FFD7DE;
+      color: var(--davivienda-red-dark);
+      padding: 1px 3px;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+    .vacio, .cargando {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 36px 0;
+      font-size: 14px;
+    }
+    .cargando { color: var(--davivienda-red-dark); }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="data:image/png;base64,PEGA_AQUI_EL_BASE64_DEL_LOGO" alt="Davivienda">
+    <div>
+      <h1>Buscador de Normativas</h1>
+      <p>Vicepresidencia de Contabilidad · Davivienda</p>
+    </div>
+  </header>
+
+  <div class="contenedor">
+    <div class="buscador">
+      <input type="text" id="inputBusqueda" placeholder="Buscar término (ej. diferencia en cambio, estampillas...)"
+             onkeydown="if(event.key==='Enter') buscar()">
+      <button onclick="buscar()">Buscar</button>
+    </div>
+
+    <div id="estado" class="estado"></div>
+    <div id="resultados"></div>
+  </div>
+
+  <script>
+    function buscar() {
+      const termino = document.getElementById('inputBusqueda').value.trim();
+      const contResultados = document.getElementById('resultados');
+      const estado = document.getElementById('estado');
+
+      if (termino.length < 2) {
+        estado.textContent = "Escribe al menos 2 caracteres.";
+        contResultados.innerHTML = "";
+        return;
+      }
+
+      estado.innerHTML = '<div class="cargando">Buscando…</div>';
+      contResultados.innerHTML = "";
+
+      google.script.run
+        .withSuccessHandler(mostrarResultados)
+        .withFailureHandler(mostrarError)
+        .buscarTermino(termino);
+    }
+
+    function mostrarResultados(data) {
+      const estado = document.getElementById('estado');
+      const cont = document.getElementById('resultados');
+
+      if (data.total === 0) {
+        estado.textContent = "";
+        cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>';
+        return;
+      }
+
+      estado.textContent = data.total + " resultado(s) encontrado(s).";
+      cont.innerHTML = data.resultados.map(r => `
+        <div class="resultado">
+          <div class="meta">
+            <span class="archivo">${r.archivo}</span>
+            <span class="pagina">Pág. ${r.pagina}</span>
+          </div>
+          <div class="fragmento">${r.fragmento}</div>
+        </div>
+      `).join("");
+    }
+
+    function mostrarError(error) {
+      document.getElementById('estado').textContent = "";
+      document.getElementById('resultados').innerHTML =
+        '<div class="vacio">Ocurrió un error: ' + error.message + '</div>';
+    }
+  </script>
+</body>
+</html>
