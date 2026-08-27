@@ -117,26 +117,15 @@
   </header>
 
   <div class="tabs">
-    <button class="tab-btn activo" onclick="cambiarTab('normativas')">Normativas propias</button>
-    <button class="tab-btn" onclick="cambiarTab('compendio')">Compendio DIAN</button>
+    <button class="tab-btn activo" onclick="cambiarTab('compendio')">Compendio DIAN</button>
     <button class="tab-btn" onclick="cambiarTab('sentencias')">Sentencias</button>
+    <button class="tab-btn" onclick="cambiarTab('normativas')">Normativas propias</button>
   </div>
 
   <div class="contenedor">
 
-    <!-- PANEL 1: Normativas propias -->
-    <div id="panel-normativas" class="panel activo">
-      <div class="buscador">
-        <input type="text" id="inputNormativas" placeholder="Buscar término (ej. diferencia en cambio, estampillas...)"
-               onkeydown="if(event.key==='Enter') buscarNormativas()">
-        <button onclick="buscarNormativas()">Buscar</button>
-      </div>
-      <div id="estadoNormativas" class="estado"></div>
-      <div id="resultadosNormativas"></div>
-    </div>
-
-    <!-- PANEL 2: Compendio DIAN -->
-    <div id="panel-compendio" class="panel">
+    <!-- PANEL 1: Compendio DIAN (pestaña por defecto) -->
+    <div id="panel-compendio" class="panel activo">
       <div class="buscador">
         <input type="text" id="inputCompendio" placeholder="Buscar en título o resumen..."
                onkeydown="if(event.key==='Enter') buscarCompendioUI()">
@@ -147,7 +136,7 @@
       <div id="resultadosCompendio"></div>
     </div>
 
-    <!-- PANEL 3: Sentencias -->
+    <!-- PANEL 2: Sentencias -->
     <div id="panel-sentencias" class="panel">
       <div class="buscador">
         <input type="text" id="inputSentencias" placeholder="Buscar en título o resumen..."
@@ -157,6 +146,17 @@
       </div>
       <div id="estadoSentencias" class="estado"></div>
       <div id="resultadosSentencias"></div>
+    </div>
+
+    <!-- PANEL 3: Normativas propias -->
+    <div id="panel-normativas" class="panel">
+      <div class="buscador">
+        <input type="text" id="inputNormativas" placeholder="Buscar término (ej. diferencia en cambio, estampillas...)"
+               onkeydown="if(event.key==='Enter') buscarNormativas()">
+        <button onclick="buscarNormativas()">Buscar</button>
+      </div>
+      <div id="estadoNormativas" class="estado"></div>
+      <div id="resultadosNormativas"></div>
     </div>
 
   </div>
@@ -187,7 +187,53 @@
       });
     }
 
-    // --- PANEL 1: Normativas propias ---
+    // --- PANEL: Compendio DIAN ---
+    function buscarCompendioUI() {
+      const termino = document.getElementById('inputCompendio').value.trim();
+      const tipo = document.getElementById('filtroTipoCompendio').value;
+      const estado = document.getElementById('estadoCompendio');
+      const cont = document.getElementById('resultadosCompendio');
+
+      estado.innerHTML = '<div class="cargando">Buscando…</div>';
+      cont.innerHTML = "";
+
+      google.script.run
+        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
+        .withFailureHandler(err => mostrarError_(err, estado, cont))
+        .buscarCompendio(termino, tipo);
+    }
+
+    // --- PANEL: Sentencias ---
+    function buscarSentenciasUI() {
+      const termino = document.getElementById('inputSentencias').value.trim();
+      const tipo = document.getElementById('filtroTipoSentencias').value;
+      const estado = document.getElementById('estadoSentencias');
+      const cont = document.getElementById('resultadosSentencias');
+
+      estado.innerHTML = '<div class="cargando">Buscando…</div>';
+      cont.innerHTML = "";
+
+      google.script.run
+        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
+        .withFailureHandler(err => mostrarError_(err, estado, cont))
+        .buscarSentencias(termino, tipo);
+    }
+
+    // --- Renderizado compartido para Compendio y Sentencias (misma estructura de columnas) ---
+    function mostrarResultadosDoctrina_(data, estado, cont) {
+      if (data.total === 0) { estado.textContent = ""; cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>'; return; }
+      estado.textContent = data.total + " resultado(s) encontrado(s).";
+      cont.innerHTML = data.resultados.map(r => `
+        <div class="resultado">
+          <span class="tag-tipo">${r.tipoImpuesto || "Sin clasificar"}</span>
+          <div class="titulo-doc">${r.numero ? r.numero + " — " : ""}${r.titulo}</div>
+          <div class="fecha-doc">${r.fecha}</div>
+          <div class="fragmento">${r.resumen}</div>
+        </div>
+      `).join("");
+    }
+
+    // --- PANEL: Normativas propias ---
     function buscarNormativas() {
       const termino = document.getElementById('inputNormativas').value.trim();
       const estado = document.getElementById('estadoNormativas');
@@ -216,52 +262,6 @@
           ${r.urlPdf
             ? `<a class="btn-pdf" href="${r.urlPdf}" target="_blank">Abrir PDF ↗</a>`
             : `<span class="sin-pdf">PDF no localizado en Drive</span>`}
-        </div>
-      `).join("");
-    }
-
-    // --- PANEL 2: Compendio DIAN ---
-    function buscarCompendioUI() {
-      const termino = document.getElementById('inputCompendio').value.trim();
-      const tipo = document.getElementById('filtroTipoCompendio').value;
-      const estado = document.getElementById('estadoCompendio');
-      const cont = document.getElementById('resultadosCompendio');
-
-      estado.innerHTML = '<div class="cargando">Buscando…</div>';
-      cont.innerHTML = "";
-
-      google.script.run
-        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
-        .withFailureHandler(err => mostrarError_(err, estado, cont))
-        .buscarCompendio(termino, tipo);
-    }
-
-    // --- PANEL 3: Sentencias ---
-    function buscarSentenciasUI() {
-      const termino = document.getElementById('inputSentencias').value.trim();
-      const tipo = document.getElementById('filtroTipoSentencias').value;
-      const estado = document.getElementById('estadoSentencias');
-      const cont = document.getElementById('resultadosSentencias');
-
-      estado.innerHTML = '<div class="cargando">Buscando…</div>';
-      cont.innerHTML = "";
-
-      google.script.run
-        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
-        .withFailureHandler(err => mostrarError_(err, estado, cont))
-        .buscarSentencias(termino, tipo);
-    }
-
-    // --- Renderizado compartido para Compendio y Sentencias (misma estructura de columnas) ---
-    function mostrarResultadosDoctrina_(data, estado, cont) {
-      if (data.total === 0) { estado.textContent = ""; cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>'; return; }
-      estado.textContent = data.total + " resultado(s) encontrado(s).";
-      cont.innerHTML = data.resultados.map(r => `
-        <div class="resultado">
-          <span class="tag-tipo">${r.tipoImpuesto || "Sin clasificar"}</span>
-          <div class="titulo-doc">${r.numero ? r.numero + " — " : ""}${r.titulo}</div>
-          <div class="fecha-doc">${r.fecha}</div>
-          <div class="fragmento">${r.resumen}</div>
         </div>
       `).join("");
     }
