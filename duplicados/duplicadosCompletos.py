@@ -233,3 +233,8 @@ resultado = (
 resultado.to_csv(RUTA_SALIDA, index=False, sep=SEPARADOR_SALIDA, encoding=ENCODING_SALIDA)
 
 print(f'archivo generado: {len(resultado)} filas | columnas={len(columnas_finales)}')
+
+
+
+df['concat'] = df['TIPO_ID'].str.strip() + df['NUMERO_ID_BANCO'].str.strip()
+print(f'filas={len(df)} | llaves únicas={df["concat"].nunique()} | duplicados={len(df) - df["concat"].nunique()}')
