@@ -1,7 +1,6 @@
 
 df['concat'] = df['TIPO_ID'].str.strip() + df['NUMERO_ID_BANCO'].str.strip()
 print(f'filas={len(df)} | llaves únicas={df["concat"].nunique()} | duplicados={len(df) - df["concat"].nunique()}')
-
 #1
 from google.colab import drive
 drive.mount('/content/drive')
