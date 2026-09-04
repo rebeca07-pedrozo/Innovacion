@@ -193,6 +193,10 @@ display(reporte_antes)
 
 
 #6
+RESCATE_IDENTIDAD = False
+
+norm['_dir_vacio'] = (norm[COL_DIRECCION] == '').astype(int)
+
 base = (
     norm.sort_values([COL_LLAVE, '_cor_vacio', '_llenos', '_caracteres', '_orden'],
                      ascending=[True, True, False, False, True])
@@ -208,8 +212,8 @@ mejor_id = (
 )
 
 mejor_ubi = (
-    norm.sort_values([COL_LLAVE, '_ubi_llenos', '_dir_largo', '_orden'],
-                     ascending=[True, False, False, True])
+    norm.sort_values([COL_LLAVE, '_dir_vacio', '_dir_largo', '_ubi_llenos', '_orden'],
+                     ascending=[True, True, False, False, True])
         .drop_duplicates(subset=[COL_LLAVE], keep='first')
         .set_index(COL_LLAVE)
 )
@@ -220,13 +224,17 @@ usar_id = mejor_id['_id_llenos'] > base['_id_llenos']
 for col in COLUMNAS_IDENTIDAD:
     consolidado.loc[usar_id, col] = mejor_id.loc[usar_id, col]
 
-usar_ubi = (mejor_ubi['_ubi_llenos'] > base['_ubi_llenos']) | \
-           ((mejor_ubi['_ubi_llenos'] == base['_ubi_llenos']) & (mejor_ubi['_dir_largo'] > base['_dir_largo']))
+usar_ubi = ((base['_dir_vacio'] == 1) & (mejor_ubi['_dir_vacio'] == 0)) | \
+           ((base['_dir_vacio'] == 0) & (mejor_ubi['_dir_largo'] > base['_dir_largo']))
 for col in COLUMNAS_UBICACION:
     consolidado.loc[usar_ubi, col] = mejor_ubi.loc[usar_ubi, col]
 
+columnas_rescate = COLUMNAS_INDEPENDIENTES + COLUMNAS_UBICACION
+if RESCATE_IDENTIDAD:
+    columnas_rescate = columnas_rescate + COLUMNAS_IDENTIDAD
+
 completados = {}
-for col in COLUMNAS_INDEPENDIENTES:
+for col in columnas_rescate:
     aux = norm[[COL_LLAVE, col, '_orden']].copy()
     aux['_vacio'] = (aux[col] == '').astype(int)
     aux['_largo'] = aux[col].str.len()
@@ -235,14 +243,24 @@ for col in COLUMNAS_INDEPENDIENTES:
                         ascending=[True, True, False, True])
            .drop_duplicates(subset=[COL_LLAVE], keep='first')
            .set_index(COL_LLAVE)[col]
+           .reindex(consolidado.index)
     )
     faltante = (consolidado[col] == '') & (mejor != '')
     consolidado.loc[faltante, col] = mejor[faltante]
     completados[col] = int(faltante.sum())
 
+for col in COLUMNAS_COMPLETITUD:
+    completados.setdefault(col, 0)
+
 completados['BLOQUE_IDENTIDAD'] = int(usar_id.sum())
 completados['BLOQUE_UBICACION'] = int(usar_ubi.sum())
 
+sin_dir_posible = int(
+    ((consolidado[COL_DIRECCION] == '') &
+     (norm.groupby(COL_LLAVE)['_dir_vacio'].min().reindex(consolidado.index) == 0)).sum()
+)
+
+print(f'direcciones rescatadas={completados[COL_DIRECCION]} | bloques ubicación={completados["BLOQUE_UBICACION"]} | casos sin dirección habiendo una disponible={sin_dir_posible}')
 
 #7
 resultado = consolidado.reset_index()
@@ -292,3 +310,15 @@ detalle = detalle.sort_values('RECUPERADOS', ascending=False)
 
 detalle.to_csv(RUTA_AUDITORIA, index=False, sep=SEPARADOR_SALIDA, encoding=ENCODING_SALIDA)
 display(detalle)
+
+#9
+def revisar_llave(valor):
+    columnas = COL_LLAVE_PARTES + COLUMNAS_COMPLETITUD
+    originales = norm.loc[norm[COL_LLAVE] == valor].copy()
+    originales.insert(0, 'FILA', originales['_orden'])
+    print(f'--- ORIGINALES ({len(originales)} filas) ---')
+    display(originales[['FILA'] + [c for c in COLUMNAS_COMPLETITUD]])
+    print('--- CONSOLIDADO ---')
+    display(consolidado.loc[[valor], COLUMNAS_COMPLETITUD])
+
+revisar_llave('13123456789')
