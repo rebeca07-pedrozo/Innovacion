@@ -116,11 +116,7 @@ df[COL_LLAVE] = (
     + df[COL_LLAVE_PARTES[1]].str.strip()
 )
 
-TOTAL_ORIGINAL = len(df)
-LLAVES_UNICAS = df[COL_LLAVE].nunique()
-
-print(f'encoding={ENCODING} | separador={repr(SEPARADOR)}')
-print(f'filas={TOTAL_ORIGINAL} | llaves únicas={LLAVES_UNICAS} | duplicados a eliminar={TOTAL_ORIGINAL - LLAVES_UNICAS}')
+print(f'encoding={ENCODING} | separador={repr(SEPARADOR)} | filas={len(df)} | llaves únicas={df[COL_LLAVE].nunique()} | duplicados={len(df) - df[COL_LLAVE].nunique()}')
 
 
 #4
@@ -205,8 +201,7 @@ ganadoras.loc[reemplazar_dir & ~reemplazar_cor, '_tipo_completado'] = 'DIRECCION
 ganadoras.loc[~reemplazar_dir & reemplazar_cor, '_tipo_completado'] = 'CORREO'
 ganadoras.loc[reemplazar_dir & reemplazar_cor, '_tipo_completado'] = 'AMBOS'
 
-print(f'filas resultantes={len(ganadoras)} | eliminadas={TOTAL_ORIGINAL - len(ganadoras)}')
-print(f'direcciones completadas={int(reemplazar_dir.sum())} | correos completados={int(reemplazar_cor.sum())} | ambos={int((reemplazar_dir & reemplazar_cor).sum())}')
+print(f'filas resultantes={len(ganadoras)} | direcciones completadas={int(reemplazar_dir.sum())} | correos completados={int(reemplazar_cor.sum())} | ambos={int((reemplazar_dir & reemplazar_cor).sum())}')
 
 
 #6
