@@ -1,6 +1,8 @@
 
 df['concat'] = df['TIPO_ID'].str.strip() + df['NUMERO_ID_BANCO'].str.strip()
 print(f'filas={len(df)} | llaves únicas={df["concat"].nunique()} | duplicados={len(df) - df["concat"].nunique()}')
+
+
 #1
 from google.colab import drive
 drive.mount('/content/drive')
@@ -12,7 +14,7 @@ import pandas as pd
 #2
 RUTA_ENTRADA = '/content/drive/MyDrive/EXOGENA/exogena.csv'
 RUTA_SALIDA = '/content/drive/MyDrive/EXOGENA/exogena_depurada.csv'
-RUTA_AUDITORIA = '/content/drive/MyDrive/EXOGENA/auditoria_completados.csv'
+RUTA_AUDITORIA = '/content/drive/MyDrive/EXOGENA/auditoria_consolidacion.csv'
 
 COL_LLAVE = 'concat'
 COL_LLAVE_PARTES = ['TIPO_ID', 'NUMERO_ID_BANCO']
@@ -21,19 +23,25 @@ SEPARADOR_LLAVE = ''
 COL_DIRECCION = 'DIRECCION'
 COL_CORREO = 'CORREO_ELECTRONICO'
 
-COLUMNAS_COMPLETITUD = [
-    'NUMERO_ID_DIAN',
-    'DIGITO_VERIFICACION',
+COLUMNAS_IDENTIDAD = [
     'NATURALEZA',
     'PRIMER_APELLIDO',
     'SEGUNDO_APELLIDO',
     'PRIMER_NOMBRE',
     'OTROS_NOMBRES',
-    'RAZON_SOCIAL',
+    'RAZON_SOCIAL'
+]
+
+COLUMNAS_UBICACION = [
     'DIRECCION',
     'COD_PAIS',
     'COD_DEPARTAMENTO',
-    'COD_MUNICIPIO',
+    'COD_MUNICIPIO'
+]
+
+COLUMNAS_INDEPENDIENTES = [
+    'NUMERO_ID_DIAN',
+    'DIGITO_VERIFICACION',
     'CORREO_ELECTRONICO',
     'NUM_FIJO',
     'NUM_CELULAR',
@@ -41,6 +49,8 @@ COLUMNAS_COMPLETITUD = [
     'X_NUM_EXTRANJERO',
     'EX_ID'
 ]
+
+COLUMNAS_COMPLETITUD = COLUMNAS_IDENTIDAD + COLUMNAS_UBICACION + COLUMNAS_INDEPENDIENTES
 
 COLUMNAS_CERO_ES_VACIO = [
     'NUMERO_ID_DIAN',
@@ -116,123 +126,169 @@ df[COL_LLAVE] = (
     + df[COL_LLAVE_PARTES[1]].str.strip()
 )
 
-print(f'encoding={ENCODING} | separador={repr(SEPARADOR)} | filas={len(df)} | llaves únicas={df[COL_LLAVE].nunique()} | duplicados={len(df) - df[COL_LLAVE].nunique()}')
+df['_orden'] = range(len(df))
 
 
 #4
 def normalizar(valor):
     return re.sub(r'\s+', ' ', str(valor)).strip()
 
-def es_vacio(valor, columna):
-    v = normalizar(valor).upper()
-    if v in VALORES_VACIOS:
-        return True
-    if columna in COLUMNAS_CERO_ES_VACIO and v and set(v) == {'0'}:
-        return True
-    return False
+def marcar_vacios(serie, columna):
+    v = serie.str.upper()
+    vacio = v.isin(VALORES_VACIOS)
+    if columna in COLUMNAS_CERO_ES_VACIO:
+        vacio = vacio | v.str.fullmatch(r'0+').fillna(False)
+    return vacio
 
-llenos = pd.Series(0, index=df.index)
-caracteres = pd.Series(0, index=df.index)
-
+norm = pd.DataFrame(index=df.index)
 for col in COLUMNAS_COMPLETITUD:
-    serie = df[col].map(normalizar)
-    vacio = serie.map(lambda v, c=col: es_vacio(v, c))
-    llenos += (~vacio).astype(int)
-    caracteres += serie.where(~vacio, '').str.len()
+    s = df[col].map(normalizar)
+    norm[col] = s.mask(marcar_vacios(s, col), '')
 
-df['_llenos'] = llenos
-df['_caracteres'] = caracteres
-df['_orden'] = range(len(df))
+norm[COL_LLAVE] = df[COL_LLAVE]
+norm['_orden'] = df['_orden']
 
-print(df['_llenos'].value_counts().sort_index())
+llenos_tot = pd.Series(0, index=df.index)
+carac_tot = pd.Series(0, index=df.index)
+for col in COLUMNAS_COMPLETITUD:
+    llenos_tot += (norm[col] != '').astype(int)
+    carac_tot += norm[col].str.len()
+
+norm['_llenos'] = llenos_tot
+norm['_caracteres'] = carac_tot
+
+id_llenos = pd.Series(0, index=df.index)
+id_carac = pd.Series(0, index=df.index)
+for col in COLUMNAS_IDENTIDAD:
+    id_llenos += (norm[col] != '').astype(int)
+    id_carac += norm[col].str.len()
+
+norm['_id_llenos'] = id_llenos
+norm['_id_caracteres'] = id_carac
+
+ubi_llenos = pd.Series(0, index=df.index)
+for col in COLUMNAS_UBICACION:
+    ubi_llenos += (norm[col] != '').astype(int)
+
+norm['_ubi_llenos'] = ubi_llenos
+norm['_dir_largo'] = norm[COL_DIRECCION].str.len()
+norm['_cor_vacio'] = (norm[COL_CORREO] == '').astype(int)
 
 
 #5
-df['_dir_norm'] = df[COL_DIRECCION].map(normalizar)
-df.loc[df['_dir_norm'].map(lambda v: es_vacio(v, COL_DIRECCION)), '_dir_norm'] = ''
-df['_dir_largo'] = df['_dir_norm'].str.len()
+filas_ini = len(norm)
+llaves_ini = norm[COL_LLAVE].nunique()
+vacios_ini = {c: int((norm[c] == '').sum()) for c in COLUMNAS_COMPLETITUD}
 
-df['_cor_norm'] = df[COL_CORREO].map(normalizar)
-df.loc[df['_cor_norm'].map(lambda v: es_vacio(v, COL_CORREO)), '_cor_norm'] = ''
-df['_cor_vacio'] = (df['_cor_norm'] == '').astype(int)
+reporte_antes = pd.DataFrame({
+    'METRICA': ['Filas totales', 'Llaves únicas', 'Filas duplicadas', 'Llaves con duplicado',
+                'Filas sin correo', 'Filas sin dirección'],
+    'VALOR': [filas_ini, llaves_ini, filas_ini - llaves_ini,
+              int((norm[COL_LLAVE].duplicated(keep=False).groupby(norm[COL_LLAVE]).any()).sum()),
+              vacios_ini[COL_CORREO], vacios_ini[COL_DIRECCION]]
+})
 
-ganadoras = (
-    df.sort_values([COL_LLAVE, '_llenos', '_caracteres', '_orden'],
-                   ascending=[True, False, False, True])
-      .drop_duplicates(subset=[COL_LLAVE], keep='first')
-      .copy()
-)
-
-mejor_direccion = (
-    df.sort_values([COL_LLAVE, '_dir_largo', '_orden'],
-                   ascending=[True, False, True])
-      .drop_duplicates(subset=[COL_LLAVE], keep='first')
-      [[COL_LLAVE, '_dir_norm', '_dir_largo']]
-      .rename(columns={'_dir_norm': '_dir_mejor', '_dir_largo': '_dir_mejor_largo'})
-)
-
-mejor_correo = (
-    df.sort_values([COL_LLAVE, '_cor_vacio', '_orden'],
-                   ascending=[True, True, True])
-      .drop_duplicates(subset=[COL_LLAVE], keep='first')
-      [[COL_LLAVE, '_cor_norm']]
-      .rename(columns={'_cor_norm': '_cor_mejor'})
-)
-
-ganadoras = ganadoras.merge(mejor_direccion, on=COL_LLAVE, how='left')
-ganadoras = ganadoras.merge(mejor_correo, on=COL_LLAVE, how='left')
-
-ganadoras['_dir_anterior'] = ganadoras['_dir_norm']
-ganadoras['_cor_anterior'] = ganadoras['_cor_norm']
-
-reemplazar_dir = ganadoras['_dir_mejor_largo'] > ganadoras['_dir_largo']
-reemplazar_cor = (ganadoras['_cor_norm'] == '') & (ganadoras['_cor_mejor'] != '')
-
-ganadoras[COL_DIRECCION] = ganadoras['_dir_norm']
-ganadoras.loc[reemplazar_dir, COL_DIRECCION] = ganadoras.loc[reemplazar_dir, '_dir_mejor']
-
-ganadoras[COL_CORREO] = ganadoras['_cor_norm']
-ganadoras.loc[reemplazar_cor, COL_CORREO] = ganadoras.loc[reemplazar_cor, '_cor_mejor']
-
-ganadoras['_rep_dir'] = reemplazar_dir
-ganadoras['_rep_cor'] = reemplazar_cor
-ganadoras['_tipo_completado'] = ''
-ganadoras.loc[reemplazar_dir & ~reemplazar_cor, '_tipo_completado'] = 'DIRECCION'
-ganadoras.loc[~reemplazar_dir & reemplazar_cor, '_tipo_completado'] = 'CORREO'
-ganadoras.loc[reemplazar_dir & reemplazar_cor, '_tipo_completado'] = 'AMBOS'
-
-print(f'filas resultantes={len(ganadoras)} | direcciones completadas={int(reemplazar_dir.sum())} | correos completados={int(reemplazar_cor.sum())} | ambos={int((reemplazar_dir & reemplazar_cor).sum())}')
+print('=== ANTES ===')
+display(reporte_antes)
 
 
 #6
-auditoria = ganadoras.loc[ganadoras['_tipo_completado'] != '', [
-    COL_LLAVE, 'TIPO_ID', 'NUMERO_ID_BANCO', 'PRIMER_APELLIDO', 'PRIMER_NOMBRE', 'RAZON_SOCIAL',
-    '_tipo_completado', '_dir_anterior', COL_DIRECCION, '_cor_anterior', COL_CORREO
-]].rename(columns={
-    '_tipo_completado': 'TIPO_COMPLETADO',
-    '_dir_anterior': 'DIRECCION_ORIGINAL',
-    COL_DIRECCION: 'DIRECCION_FINAL',
-    '_cor_anterior': 'CORREO_ORIGINAL',
-    COL_CORREO: 'CORREO_FINAL'
-})
+base = (
+    norm.sort_values([COL_LLAVE, '_cor_vacio', '_llenos', '_caracteres', '_orden'],
+                     ascending=[True, True, False, False, True])
+        .drop_duplicates(subset=[COL_LLAVE], keep='first')
+        .set_index(COL_LLAVE)
+)
 
-auditoria = auditoria.sort_values(['TIPO_COMPLETADO', COL_LLAVE])
-auditoria.to_csv(RUTA_AUDITORIA, index=False, sep=SEPARADOR_SALIDA, encoding=ENCODING_SALIDA)
+mejor_id = (
+    norm.sort_values([COL_LLAVE, '_id_llenos', '_id_caracteres', '_orden'],
+                     ascending=[True, False, False, True])
+        .drop_duplicates(subset=[COL_LLAVE], keep='first')
+        .set_index(COL_LLAVE)
+)
 
-print(auditoria['TIPO_COMPLETADO'].value_counts())
-display(auditoria.head(20))
+mejor_ubi = (
+    norm.sort_values([COL_LLAVE, '_ubi_llenos', '_dir_largo', '_orden'],
+                     ascending=[True, False, False, True])
+        .drop_duplicates(subset=[COL_LLAVE], keep='first')
+        .set_index(COL_LLAVE)
+)
+
+consolidado = base.copy()
+
+usar_id = mejor_id['_id_llenos'] > base['_id_llenos']
+for col in COLUMNAS_IDENTIDAD:
+    consolidado.loc[usar_id, col] = mejor_id.loc[usar_id, col]
+
+usar_ubi = (mejor_ubi['_ubi_llenos'] > base['_ubi_llenos']) | \
+           ((mejor_ubi['_ubi_llenos'] == base['_ubi_llenos']) & (mejor_ubi['_dir_largo'] > base['_dir_largo']))
+for col in COLUMNAS_UBICACION:
+    consolidado.loc[usar_ubi, col] = mejor_ubi.loc[usar_ubi, col]
+
+completados = {}
+for col in COLUMNAS_INDEPENDIENTES:
+    aux = norm[[COL_LLAVE, col, '_orden']].copy()
+    aux['_vacio'] = (aux[col] == '').astype(int)
+    aux['_largo'] = aux[col].str.len()
+    mejor = (
+        aux.sort_values([COL_LLAVE, '_vacio', '_largo', '_orden'],
+                        ascending=[True, True, False, True])
+           .drop_duplicates(subset=[COL_LLAVE], keep='first')
+           .set_index(COL_LLAVE)[col]
+    )
+    faltante = (consolidado[col] == '') & (mejor != '')
+    consolidado.loc[faltante, col] = mejor[faltante]
+    completados[col] = int(faltante.sum())
+
+completados['BLOQUE_IDENTIDAD'] = int(usar_id.sum())
+completados['BLOQUE_UBICACION'] = int(usar_ubi.sum())
 
 
 #7
-columnas_finales = [c for c in df.columns if not c.startswith('_')]
-if not INCLUIR_LLAVE_EN_SALIDA:
-    columnas_finales = [c for c in columnas_finales if c != COL_LLAVE]
+resultado = consolidado.reset_index()
+resultado = resultado.sort_values('_orden').reset_index(drop=True)
 
-resultado = (
-    ganadoras.sort_values('_orden')[columnas_finales]
-             .reset_index(drop=True)
-)
+columnas_archivo = [c for c in df.columns if not c.startswith('_') and c != COL_LLAVE]
+for col in columnas_archivo:
+    if col not in COLUMNAS_COMPLETITUD and col not in COL_LLAVE_PARTES:
+        mapa = df.drop_duplicates(subset=[COL_LLAVE], keep='first').set_index(COL_LLAVE)[col]
+        resultado[col] = resultado[COL_LLAVE].map(mapa)
 
-resultado.to_csv(RUTA_SALIDA, index=False, sep=SEPARADOR_SALIDA, encoding=ENCODING_SALIDA)
+resultado[COL_LLAVE_PARTES[0]] = resultado[COL_LLAVE].map(
+    df.drop_duplicates(subset=[COL_LLAVE], keep='first').set_index(COL_LLAVE)[COL_LLAVE_PARTES[0]])
+resultado[COL_LLAVE_PARTES[1]] = resultado[COL_LLAVE].map(
+    df.drop_duplicates(subset=[COL_LLAVE], keep='first').set_index(COL_LLAVE)[COL_LLAVE_PARTES[1]])
 
-print(f'archivo generado: {len(resultado)} filas | columnas={len(columnas_finales)}')
+columnas_finales = columnas_archivo if not INCLUIR_LLAVE_EN_SALIDA else [COL_LLAVE] + columnas_archivo
+salida = resultado[columnas_finales]
+salida.to_csv(RUTA_SALIDA, index=False, sep=SEPARADOR_SALIDA, encoding=ENCODING_SALIDA)
+
+vacios_fin = {c: int((resultado[c] == '').sum()) for c in COLUMNAS_COMPLETITUD}
+
+reporte_despues = pd.DataFrame({
+    'METRICA': ['Filas resultantes', 'Duplicados eliminados', '% reducción',
+                'Filas sin correo', 'Filas sin dirección',
+                'Bloques identidad completados', 'Bloques ubicación completados',
+                'Correos completados'],
+    'VALOR': [len(resultado), filas_ini - len(resultado),
+              f'{(filas_ini - len(resultado)) / filas_ini * 100:.1f}%',
+              vacios_fin[COL_CORREO], vacios_fin[COL_DIRECCION],
+              completados['BLOQUE_IDENTIDAD'], completados['BLOQUE_UBICACION'],
+              completados[COL_CORREO]]
+})
+
+print('=== DESPUÉS ===')
+display(reporte_despues)
+
+
+#8
+detalle = pd.DataFrame({
+    'COLUMNA': COLUMNAS_COMPLETITUD,
+    'VACIOS_ANTES': [vacios_ini[c] for c in COLUMNAS_COMPLETITUD],
+    'VACIOS_DESPUES': [vacios_fin[c] for c in COLUMNAS_COMPLETITUD]
+})
+detalle['RECUPERADOS'] = detalle['VACIOS_ANTES'] - detalle['VACIOS_DESPUES']
+detalle = detalle.sort_values('RECUPERADOS', ascending=False)
+
+detalle.to_csv(RUTA_AUDITORIA, index=False, sep=SEPARADOR_SALIDA, encoding=ENCODING_SALIDA)
+display(detalle)
