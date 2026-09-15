@@ -232,3 +232,22 @@ function obtenerInfoDrivePorNombre_(nombreArchivo) {
   cache.put(claveCache, "NO_ENCONTRADO", 21600);
   return null;
 }
+
+
+function diagnosticarBusquedaArchivo() {
+  const nombreExacto = "Oficio-No.-2024EE019141O1-del-29-de-enero-de-2024.pdf";
+
+  Logger.log("--- Prueba 1: búsqueda exacta por nombre ---");
+  const archivos = DriveApp.getFilesByName(nombreExacto);
+  Logger.log("¿Encontrado?: " + archivos.hasNext());
+
+  Logger.log("--- Prueba 2: búsqueda parcial (contiene 'Oficio-No') ---");
+  const todosLosArchivos = DriveApp.searchFiles("title contains 'Oficio-No'");
+  while (todosLosArchivos.hasNext()) {
+    const archivo = todosLosArchivos.next();
+    Logger.log("Encontrado con nombre real: [" + archivo.getName() + "]  (longitud: " + archivo.getName().length + ")");
+  }
+
+  Logger.log("--- Comparación de longitud del nombre esperado ---");
+  Logger.log("Nombre buscado: [" + nombreExacto + "]  (longitud: " + nombreExacto.length + ")");
+}
