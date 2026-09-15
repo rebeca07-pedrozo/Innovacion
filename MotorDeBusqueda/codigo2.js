@@ -208,9 +208,6 @@ function obtenerInfoDrivePorNombre_(nombreArchivo) {
       const archivo = archivos.next();
       const id = archivo.getId();
 
-      // Intenta dar acceso de visualización dentro del dominio corporativo.
-      // Si el script no tiene permisos de owner/editor sobre el archivo, falla en silencio
-      // (el link igual se genera, pero quien lo abra podría necesitar pedir acceso).
       try {
         archivo.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
       } catch (errorPermisos) {
@@ -222,32 +219,20 @@ function obtenerInfoDrivePorNombre_(nombreArchivo) {
         previewUrl: "https://drive.google.com/file/d/" + id + "/preview"
       };
 
-      cache.put(claveCache, JSON.stringify(info), 21600); // 6 horas
+      cache.put(claveCache, JSON.stringify(info), 21600); // 6 horas para resultados positivos, está bien
       return info;
     }
   } catch (e) {
     // si falla la búsqueda, seguimos sin romper el resto
   }
 
-  cache.put(claveCache, "NO_ENCONTRADO", 21600);
+  // Antes: 21600 (6 horas) también para "no encontrado" — eso causaba el bug.
+  // Ahora: solo 120 segundos, así un falso negativo se autocorrige rápido.
+  cache.put(claveCache, "NO_ENCONTRADO", 120);
   return null;
 }
-
-
-function diagnosticarBusquedaArchivo() {
-  const nombreExacto = "Oficio-No.-2024EE019141O1-del-29-de-enero-de-2024.pdf";
-
-  Logger.log("--- Prueba 1: búsqueda exacta por nombre ---");
-  const archivos = DriveApp.getFilesByName(nombreExacto);
-  Logger.log("¿Encontrado?: " + archivos.hasNext());
-
-  Logger.log("--- Prueba 2: búsqueda parcial (contiene 'Oficio-No') ---");
-  const todosLosArchivos = DriveApp.searchFiles("title contains 'Oficio-No'");
-  while (todosLosArchivos.hasNext()) {
-    const archivo = todosLosArchivos.next();
-    Logger.log("Encontrado con nombre real: [" + archivo.getName() + "]  (longitud: " + archivo.getName().length + ")");
-  }
-
-  Logger.log("--- Comparación de longitud del nombre esperado ---");
-  Logger.log("Nombre buscado: [" + nombreExacto + "]  (longitud: " + nombreExacto.length + ")");
+function limpiarCacheDrive() {
+  const cache = CacheService.getScriptCache();
+  cache.removeAll(["info_Oficio-No.-2024EE019141O1-del-29-de-enero-de-2024.pdf"]);
+  Logger.log("Caché limpiada para ese archivo específico.");
 }
