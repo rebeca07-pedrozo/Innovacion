@@ -298,13 +298,21 @@
       cont.innerHTML = '<div class="vacio">Ocurrió un error: ' + error.message + '</div>';
     }
 
-    // --- Panel lateral de PDF ---
+        // --- Panel lateral de PDF ---
     function abrirPanelPDF(urlPreview, nombreArchivo) {
-      document.getElementById('nombreDocPanel').textContent = nombreArchivo;
-      document.getElementById('cuerpoPanelPdf').innerHTML =
-        '<iframe src="' + urlPreview + '"></iframe>';
-      document.getElementById('panelPdf').classList.add('abierto');
-      document.getElementById('overlayPdf').classList.add('abierto');
+    document.getElementById('nombreDocPanel').textContent = nombreArchivo;
+    document.getElementById('panelPdf').classList.add('abierto');
+    document.getElementById('overlayPdf').classList.add('abierto');
+
+    const cuerpo = document.getElementById('cuerpoPanelPdf');
+
+    if (!urlPreview) {
+        cuerpo.innerHTML = '<div class="panel-pdf-mensaje">No se pudo localizar este documento en Drive. Puede que el nombre del archivo en la hoja no coincida exactamente con el nombre del archivo en Drive, o que no tengamos permiso sobre él.</div>';
+        return;
+    }
+
+    cuerpo.innerHTML = '<iframe src="' + urlPreview + '" onload="console.log(\'iframe cargó:\', this.src)"></iframe>' +
+        '<div style="padding:8px 14px; font-size:11.5px; color:#888; border-top:1px solid #eee;">Si no ves el documento, <a href="' + urlPreview.replace('/preview', '/view') + '" target="_blank">ábrelo en una pestaña nueva</a>.</div>';
     }
 
     function cerrarPanelPDF() {
