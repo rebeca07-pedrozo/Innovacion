@@ -34,15 +34,16 @@ function doGet() {
 function buscarCompendio(termino, tipoImpuesto) {
   const principal = buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, tipoImpuesto);
   const apoyo = (termino && termino.trim().length >= 2) ? buscarApoyoInterno_(termino) : { resultados: [], total: 0 };
+  registrarBusqueda_("Compendio DIAN", termino, tipoImpuesto, principal.total);
   return { principal: principal, apoyo: apoyo };
 }
 
 function buscarSentencias(termino, tipoImpuesto) {
   const principal = buscarEnHojaExterna_(CONFIG.HOJA_SENTENCIAS, termino, tipoImpuesto);
   const apoyo = (termino && termino.trim().length >= 2) ? buscarApoyoInterno_(termino) : { resultados: [], total: 0 };
+  registrarBusqueda_("Sentencias", termino, tipoImpuesto, principal.total);
   return { principal: principal, apoyo: apoyo };
 }
-
 // ============================================================
 // Fuente interna de apoyo (normativas propias) — no visible como categoría
 // ============================================================
@@ -230,9 +231,29 @@ function obtenerInfoDrivePorNombre_(nombreArchivo) {
   // Ahora: solo 120 segundos, así un falso negativo se autocorrige rápido.
   cache.put(claveCache, "NO_ENCONTRADO", 120);
   return null;
+  // ============================================================
+// NUEVO: Registro de uso del buscador (para KPIs)
+// ============================================================
+function registrarBusqueda_(categoria, termino, tipoImpuestoFiltro, totalResultados) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let hojaLogs = ss.getSheetByName("Logs_Busquedas");
+
+    if (!hojaLogs) {
+      hojaLogs = ss.insertSheet("Logs_Busquedas");
+      hojaLogs.appendRow(["fecha_hora", "categoria", "termino_buscado", "filtro_tipo_impuesto", "total_resultados"]);
+    }
+
+    hojaLogs.appendRow([
+      new Date(),
+      categoria,
+      termino || "",
+      (tipoImpuestoFiltro && tipoImpuestoFiltro !== "TODOS") ? tipoImpuestoFiltro : "",
+      totalResultados
+    ]);
+  } catch (e) {
+    // el logging nunca debe romper la búsqueda del usuario
+    Logger.log("Error registrando búsqueda: " + e.message);
+  }
 }
-function limpiarCacheDrive() {
-  const cache = CacheService.getScriptCache();
-  cache.removeAll(["info_Oficio-No.-2024EE019141O1-del-29-de-enero-de-2024.pdf"]);
-  Logger.log("Caché limpiada para ese archivo específico.");
 }
