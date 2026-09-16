@@ -2,7 +2,7 @@
 // CONFIGURACIÓN
 // ============================================================
 const CONFIG = {
-  SHEET_NAME: "Hoja1",              // <-- ajusta al nombre real de tu pestaña
+  SHEET_NAME: "texto_detallado",
   COL_ARCHIVO: "nombre_archivo",
   COL_RUTA: "ruta_completa",
   COL_PAGINA: "pagina",
@@ -34,18 +34,19 @@ function doGet() {
 function buscarCompendio(termino, tipoImpuesto) {
   const principal = buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, tipoImpuesto);
   const apoyo = (termino && termino.trim().length >= 2) ? buscarApoyoInterno_(termino) : { resultados: [], total: 0 };
-  registrarBusqueda_("Compendio DIAN", termino, tipoImpuesto, principal.total);
+  registrarBusqueda_("Compendio DIAN", termino, principal.total);
   return { principal: principal, apoyo: apoyo };
 }
 
 function buscarSentencias(termino, tipoImpuesto) {
   const principal = buscarEnHojaExterna_(CONFIG.HOJA_SENTENCIAS, termino, tipoImpuesto);
   const apoyo = (termino && termino.trim().length >= 2) ? buscarApoyoInterno_(termino) : { resultados: [], total: 0 };
-  registrarBusqueda_("Sentencias", termino, tipoImpuesto, principal.total);
+  registrarBusqueda_("Sentencias", termino, principal.total);
   return { principal: principal, apoyo: apoyo };
 }
+
 // ============================================================
-// Fuente interna de apoyo (normativas propias) — no visible como categoría
+// Fuente interna de apoyo (normativas propias)
 // ============================================================
 function buscarApoyoInterno_(termino) {
   const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
@@ -159,6 +160,77 @@ function obtenerTiposImpuesto(nombreHoja) {
 }
 
 // ============================================================
+// REGISTRO DE USO (para los KPIs)
+// ============================================================
+function registrarBusqueda_(categoria, termino, totalResultados) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let hojaLogs = ss.getSheetByName("Logs_Busquedas");
+    if (!hojaLogs) {
+      hojaLogs = ss.insertSheet("Logs_Busquedas");
+      hojaLogs.appendRow(["fecha_hora", "categoria", "termino_buscado", "total_resultados"]);
+    }
+    hojaLogs.appendRow([new Date(), categoria, termino || "", totalResultados]);
+  } catch (e) {
+    Logger.log("Error registrando búsqueda: " + e.message);
+  }
+}
+
+// ============================================================
+// DASHBOARD (KPIs) — escribe todo en la pestaña "KPIs"
+// ============================================================
+function actualizarKPIs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let hojaKPIs = ss.getSheetByName("KPIs");
+  if (!hojaKPIs) hojaKPIs = ss.insertSheet("KPIs");
+  hojaKPIs.clear();
+
+  // --- Volumen de documentos ---
+  const ssCompendio = SpreadsheetApp.openById(CONFIG.COMPENDIO_SPREADSHEET_ID);
+  const totalCompendio = ssCompendio.getSheetByName(CONFIG.HOJA_COMPENDIO).getDataRange().getNumRows() - 1;
+  const totalSentencias = ssCompendio.getSheetByName(CONFIG.HOJA_SENTENCIAS).getDataRange().getNumRows() - 1;
+
+  const hojaPropia = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const datosPropios = hojaPropia.getDataRange().getValues();
+  const idxArchivo = datosPropios[0].map(h => String(h).trim()).indexOf(CONFIG.COL_ARCHIVO);
+  const archivosUnicos = new Set(datosPropios.slice(1).map(f => f[idxArchivo])).size;
+
+  // --- Uso del buscador ---
+  const hojaLogs = ss.getSheetByName("Logs_Busquedas");
+  const logs = hojaLogs ? hojaLogs.getDataRange().getValues().slice(1) : [];
+  const totalBusquedas = logs.length;
+  const sinResultados = logs.filter(f => Number(f[3]) === 0).length;
+
+  const porTermino = {};
+  logs.forEach(f => {
+    const t = String(f[2] || "").trim().toLowerCase();
+    if (t) porTermino[t] = (porTermino[t] || 0) + 1;
+  });
+  const top10Terminos = Object.entries(porTermino).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // --- Escribir todo en la pestaña KPIs ---
+  const filas = [
+    ["MÉTRICA", "VALOR"],
+    ["Total documentos - Compendio DIAN", totalCompendio],
+    ["Total documentos - Sentencias", totalSentencias],
+    ["Total documentos - Normativas propias", archivosUnicos],
+    ["", ""],
+    ["Total búsquedas realizadas", totalBusquedas],
+    ["Búsquedas sin resultados", sinResultados],
+    ["", ""],
+    ["TOP 10 TÉRMINOS MÁS BUSCADOS", "VECES BUSCADO"],
+  ];
+  top10Terminos.forEach(([termino, veces]) => filas.push([termino, veces]));
+
+  hojaKPIs.getRange(1, 1, filas.length, 2).setValues(filas);
+  hojaKPIs.getRange(1, 1, 1, 2).setFontWeight("bold");
+  hojaKPIs.getRange(9, 1, 1, 2).setFontWeight("bold");
+  hojaKPIs.autoResizeColumns(1, 2);
+
+  Logger.log("KPIs actualizados en la pestaña 'KPIs'.");
+}
+
+// ============================================================
 // UTILIDADES
 // ============================================================
 function quitarTildes_(texto) {
@@ -191,12 +263,6 @@ function formatearFecha_(valor) {
   return String(valor);
 }
 
-/**
- * Busca el archivo en Drive por nombre, le asegura permiso de visualización
- * dentro del dominio (para que nadie tope con pantalla de "solicitar acceso"),
- * y devuelve tanto el link de descarga como el link de previsualización embebible.
- * Usa caché (6h) para no repetir esta operación en cada búsqueda.
- */
 function obtenerInfoDrivePorNombre_(nombreArchivo) {
   const cache = CacheService.getScriptCache();
   const claveCache = "info_" + nombreArchivo;
@@ -220,40 +286,13 @@ function obtenerInfoDrivePorNombre_(nombreArchivo) {
         previewUrl: "https://drive.google.com/file/d/" + id + "/preview"
       };
 
-      cache.put(claveCache, JSON.stringify(info), 21600); // 6 horas para resultados positivos, está bien
+      cache.put(claveCache, JSON.stringify(info), 21600);
       return info;
     }
   } catch (e) {
-    // si falla la búsqueda, seguimos sin romper el resto
+    // si falla, seguimos sin romper la búsqueda principal
   }
 
-  // Antes: 21600 (6 horas) también para "no encontrado" — eso causaba el bug.
-  // Ahora: solo 120 segundos, así un falso negativo se autocorrige rápido.
   cache.put(claveCache, "NO_ENCONTRADO", 120);
   return null;
-  // ============================================================
-// NUEVO: Registro de uso del buscador (para KPIs)
-// ============================================================
-function registrarBusqueda_(categoria, termino, tipoImpuestoFiltro, totalResultados) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let hojaLogs = ss.getSheetByName("Logs_Busquedas");
-
-    if (!hojaLogs) {
-      hojaLogs = ss.insertSheet("Logs_Busquedas");
-      hojaLogs.appendRow(["fecha_hora", "categoria", "termino_buscado", "filtro_tipo_impuesto", "total_resultados"]);
-    }
-
-    hojaLogs.appendRow([
-      new Date(),
-      categoria,
-      termino || "",
-      (tipoImpuestoFiltro && tipoImpuestoFiltro !== "TODOS") ? tipoImpuestoFiltro : "",
-      totalResultados
-    ]);
-  } catch (e) {
-    // el logging nunca debe romper la búsqueda del usuario
-    Logger.log("Error registrando búsqueda: " + e.message);
-  }
-}
 }
