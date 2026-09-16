@@ -1,13 +1,12 @@
-// ============================================================
-// CONFIGURACIÓN
-// ============================================================
 const CONFIG = {
-  SHEET_NAME: "Hoja1",              // <-- ajusta al nombre real de tu pestaña
+  // --- Normativas propias (fuente de APOYO, no visible como categoría) ---
+  SHEET_NAME: "texto_detallado",              // <-- ajusta al nombre real de tu pestaña
   COL_ARCHIVO: "nombre_archivo",
   COL_RUTA: "ruta_completa",
   COL_PAGINA: "pagina",
   COL_TEXTO: "texto",
 
+  // --- Compendio DIAN / Sentencias (Excel del abogado) ---
   COMPENDIO_SPREADSHEET_ID: "1R4gZpTwd1PBaE8yj3ruJezQYoqmrOUuGUfSRmMOFtGE",
   HOJA_COMPENDIO: "Compendio Completo Doctrina y Conceptos DIAN",
   HOJA_SENTENCIAS: "Sentencias",
@@ -29,7 +28,8 @@ function doGet() {
 }
 
 // ============================================================
-// BÚSQUEDAS PRINCIPALES
+// BÚSQUEDAS PRINCIPALES (lo que ve el usuario como categoría)
+// Cada una devuelve resultados principales + apoyo interno (normativas propias)
 // ============================================================
 function buscarCompendio(termino, tipoImpuesto) {
   const principal = buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, tipoImpuesto);
@@ -44,11 +44,11 @@ function buscarSentencias(termino, tipoImpuesto) {
 }
 
 // ============================================================
-// Fuente interna de apoyo (normativas propias) — no visible como categoría
+// Fuente interna de apoyo (antes "Normativas propias") — NO visible como categoría
 // ============================================================
 function buscarApoyoInterno_(termino) {
   const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
-  if (!hoja) return { resultados: [], total: 0 };
+  if (!hoja) return { resultados: [], total: 0 }; // si no existe, simplemente no hay apoyo, no rompe nada
 
   const datos = hoja.getDataRange().getValues();
   const encabezados = datos[0].map(h => String(h).trim());
@@ -70,14 +70,12 @@ function buscarApoyoInterno_(termino) {
     if (posicion !== -1) {
       const fragmento = construirFragmento_(textoOriginal, posicion, terminoNorm.length, termino);
       const nombreArchivo = String(fila[idxArchivo]);
-      const infoDrive = obtenerInfoDrivePorNombre_(nombreArchivo);
 
       resultados.push({
         archivo: nombreArchivo,
         pagina: fila[idxPagina],
         fragmento: fragmento,
-        urlPreview: infoDrive ? infoDrive.previewUrl : null,
-        urlDescarga: infoDrive ? infoDrive.url : null
+        urlPdf: obtenerUrlDrivePorNombre_(nombreArchivo)
       });
 
       if (resultados.length >= CONFIG.MAX_RESULTADOS_APOYO) break;
@@ -139,6 +137,7 @@ function buscarEnHojaExterna_(nombreHoja, termino, tipoImpuesto) {
   return { resultados: resultados, total: resultados.length };
 }
 
+// Devuelve los valores únicos de "Tipo de Impuesto Evaluado" para poblar el desplegable
 function obtenerTiposImpuesto(nombreHoja) {
   const ss = SpreadsheetApp.openById(CONFIG.COMPENDIO_SPREADSHEET_ID);
   const hoja = ss.getSheetByName(nombreHoja);
@@ -190,45 +189,23 @@ function formatearFecha_(valor) {
   return String(valor);
 }
 
-/**
- * Busca el archivo en Drive por nombre, le asegura permiso de visualización
- * dentro del dominio (para que nadie tope con pantalla de "solicitar acceso"),
- * y devuelve tanto el link de descarga como el link de previsualización embebible.
- * Usa caché (6h) para no repetir esta operación en cada búsqueda.
- */
-function obtenerInfoDrivePorNombre_(nombreArchivo) {
+// Busca el archivo en Drive por nombre y devuelve su URL. Usa caché (6h) para no repetir la búsqueda.
+function obtenerUrlDrivePorNombre_(nombreArchivo) {
   const cache = CacheService.getScriptCache();
-  const claveCache = "info_" + nombreArchivo;
+  const claveCache = "url_" + nombreArchivo;
   const cacheado = cache.get(claveCache);
-  if (cacheado) return cacheado === "NO_ENCONTRADO" ? null : JSON.parse(cacheado);
+  if (cacheado) return cacheado === "NO_ENCONTRADO" ? null : cacheado;
 
   try {
     const archivos = DriveApp.getFilesByName(nombreArchivo);
     if (archivos.hasNext()) {
-      const archivo = archivos.next();
-      const id = archivo.getId();
-
-      // Intenta dar acceso de visualización dentro del dominio corporativo.
-      // Si el script no tiene permisos de owner/editor sobre el archivo, falla en silencio
-      // (el link igual se genera, pero quien lo abra podría necesitar pedir acceso).
-      try {
-        archivo.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
-      } catch (errorPermisos) {
-        // no rompemos la búsqueda si esto falla
-      }
-
-      const info = {
-        url: archivo.getUrl(),
-        previewUrl: "https://drive.google.com/file/d/" + id + "/preview"
-      };
-
-      cache.put(claveCache, JSON.stringify(info), 21600); // 6 horas
-      return info;
+      const url = archivos.next().getUrl();
+      cache.put(claveCache, url, 21600);
+      return url;
     }
   } catch (e) {
-    // si falla la búsqueda, seguimos sin romper el resto
+    // si falla, seguimos sin romper la búsqueda principal
   }
-
   cache.put(claveCache, "NO_ENCONTRADO", 21600);
   return null;
 }
