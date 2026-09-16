@@ -1,23 +1,15 @@
 // ============================================================================
-// SISTEMA DE AUTOMATIZACIÓN: REQUERIMIENTOS LEGALES
-// Código AppScript VERSIÓN TESTING (busca en label específico)
+// SISTEMA DE AUTOMATIZACIÓN: REQUERIMIENTOS LEGALES - CÓDIGO COMPLETO
+// ============================================================================
+// Este es el código FINAL con KPIs integrados
+// Copia TODO esto tal cual a Apps Script
 // ============================================================================
 
 // ============================================================================
-// VERSIÓN: TESTING (busca en label "Testing_Reqs")
-// Una vez valides todo, cambias a VERSIÓN PRODUCCIÓN
+// 1. SETUP: Crear el trigger automático
 // ============================================================================
 
-// ============================================================================
-// 1. SETUP: Crear el trigger automático al recibir correos
-// ============================================================================
-
-/**
- * Ejecuta una sola vez para crear el trigger automático
- * Copia esta función en el Editor, corre una sola vez, listo.
- */
 function crearTriggerAutomatico() {
-  // Elimina triggers antiguos (para evitar duplicados)
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(trigger => {
     if (trigger.getHandlerFunction() === 'verificaCorreosNuevos') {
@@ -25,7 +17,6 @@ function crearTriggerAutomatico() {
     }
   });
   
-  // Crea trigger de tiempo: cada 5 min busca correos nuevos
   ScriptApp.newTrigger('verificaCorreosNuevos')
     .timeBased()
     .everyMinutes(5)
@@ -35,29 +26,23 @@ function crearTriggerAutomatico() {
 }
 
 // ============================================================================
-// 2. VERIFICACIÓN DE CORREOS NUEVOS (VERSIÓN TESTING)
+// 2. VERIFICACIÓN DE CORREOS NUEVOS (TESTING)
 // ============================================================================
 
 function verificaCorreosNuevos() {
   try {
-    // ===== VERSIÓN TESTING: Busca en label "Testing_Reqs" =====
     const testingLabel = GmailApp.getUserLabelByName("Testing_Reqs");
     
     if (!testingLabel) {
-      Logger.log("⚠️ Label 'Testing_Reqs' no encontrado. ¿Lo creaste en Gmail?");
-      Logger.log("   1. Abre Gmail");
-      Logger.log("   2. Crea un label llamado 'Testing_Reqs'");
-      Logger.log("   3. Marca tus correos con ese label");
+      Logger.log("⚠️ Label 'Testing_Reqs' no encontrado");
       return;
     }
     
-    // Busca correos SIN procesar en label Testing_Reqs
     const threads = testingLabel.getThreads(0, 50);
-    
     Logger.log(`📧 Correos en Testing_Reqs: ${threads.length}`);
     
     if (threads.length === 0) {
-      Logger.log("   (Sin correos nuevos para procesar)");
+      Logger.log("   (Sin correos nuevos)");
       return;
     }
     
@@ -68,27 +53,23 @@ function verificaCorreosNuevos() {
       const messages = thread.getMessages();
       const lastMessage = messages[messages.length - 1];
       
-      Logger.log(`\n--- PROCESANDO CORREO ${idx + 1} ---`);
+      Logger.log(`\n--- CORREO ${idx + 1} ---`);
       Logger.log(`Asunto: ${lastMessage.getSubject()}`);
-      Logger.log(`De: ${lastMessage.getFrom()}`);
-      Logger.log(`Fecha: ${lastMessage.getDate()}`);
       
       procesarCorreo(lastMessage, sheet);
       
-      // Mueve a carpeta "Procesados" después de procesar
       const processedLabel = GmailApp.getUserLabelByName("Procesados") || 
                             GmailApp.createLabel("Procesados");
       thread.addLabel(processedLabel);
       thread.removeLabel(testingLabel);
       
-      Logger.log("✅ Movido a 'Procesados'");
+      Logger.log("✅ Procesado");
     });
     
-    Logger.log(`\n✅ Procesamiento completado: ${threads.length} correo(s)`);
+    Logger.log(`\n✅ Completado: ${threads.length} correo(s)`);
     
   } catch (error) {
-    Logger.log(`❌ ERROR en verificaCorreosNuevos: ${error}`);
-    Logger.log(error.stack);
+    Logger.log(`❌ ERROR: ${error}`);
   }
 }
 
@@ -100,62 +81,54 @@ function procesarCorreo(mensaje, sheet) {
   try {
     const asunto = mensaje.getSubject();
     const cuerpo = mensaje.getPlainBody();
-    const emailFrom = mensaje.getFrom();
     const emailTimestamp = mensaje.getDate();
     
     Logger.log(`🔍 Extrayendo datos...`);
     
-    // Extrae todos los datos del correo
     const datos = extraeYValidaTodoDelCorreo(asunto, cuerpo);
     
     Logger.log(`
       Municipio: ${datos.municipio}
-      Departamento: ${datos.departamento}
       Tipo Oficio: ${datos.tipo_oficio}
-      Número: ${datos.numero_oficio}
       Vencimiento: ${datos.fecha_vencimiento}
     `);
     
-    // Genera ID único
     const id_req = generaID_REQ();
     
-    // Crea fila nueva
     const nuevaFila = [
-      id_req,                          // 1. ID_REQ
-      "por-completar",               // 2. STATUS
-      emailTimestamp,                 // 3. EMAIL_TIMESTAMP
-      "=TODAY()-C" + (sheet.getLastRow() + 1), // 4. DÍAS_ATRASO (fórmula)
-      asunto,                         // 5. ASUNTO_CORREO
-      datos.fecha_recepcion_area,     // 6. FECHA_RECEPCIÓN_ÁREA
-      "",                             // 7. FECHA_RECEPCIÓN_BANCO (manual)
-      datos.municipio,                // 8. CIUDAD_MUNICIPIO
-      datos.departamento,             // 9. DEPARTAMENTO
-      datos.tipo_oficio,              // 10. TIPO_OFICIO
-      datos.consulta_realizada_por,   // 11. CONSULTA_REALIZADA_POR
-      "",                             // 12. RESPONSABLE_ÁREA (manual)
-      "",                             // 13. CASO (manual)
-      "",                             // 14. ACCIÓN_EJECUTADA (manual)
-      datos.fecha_vencimiento,        // 15. FECHA_VENCIMIENTO
-      "",                             // 16. FECHA_RESPUESTA_ENVIADA (manual)
-      "",                             // 17. MEDIO_RESPUESTA (manual)
-      "",                             // 18. QUIÉN_TIENE_FÍSICO (manual)
-      "",                             // 19. OBSERVACIONES (manual)
-      new Date()                      // 20. ÚLTIMA_ACTUALIZACIÓN
+      id_req,
+      "por-completar",
+      emailTimestamp,
+      "=TODAY()-C" + (sheet.getLastRow() + 1),
+      asunto,
+      datos.fecha_recepcion_area,
+      "",
+      datos.municipio,
+      datos.departamento,
+      datos.tipo_oficio,
+      datos.consulta_realizada_por,
+      "",
+      "",
+      "",
+      datos.fecha_vencimiento,
+      "",
+      "",
+      "",
+      "",
+      new Date()
     ];
     
-    // Agrega fila a Sheets
     sheet.appendRow(nuevaFila);
-    
     Logger.log(`✅ Fila agregada - ID: ${id_req}`);
     
-    // Actualiza tabla de municipios detectados
     actualizaMunicipioEnTabla(datos.municipio, datos.departamento);
-    
-    // Crea recordatorio para 1 día después
     crearRecordatorio(id_req, emailTimestamp, 1);
     
+    // ⭐ AQUÍ SE ACTUALIZA KPIs AUTOMÁTICAMENTE
+    actualizaKPIs();
+    
   } catch (error) {
-    Logger.log(`❌ ERROR procesando correo: ${error}\n${error.stack}`);
+    Logger.log(`❌ ERROR: ${error}`);
   }
 }
 
@@ -178,78 +151,53 @@ function extraeYValidaTodoDelCorreo(asunto, cuerpo) {
     periodos_afectados: []
   };
   
-  // ===== EXTRAE MUNICIPIO =====
+  // EXTRAE MUNICIPIO
   Logger.log(`[REGEX] Buscando municipio...`);
-  
   let match = texto.match(/Secretaría de Hacienda de\s+([A-Za-záéíóúñÁÉÍÓÚÑ\s]+?)(?:\n|,|$|\s-)/i);
   if (match) {
     datos.municipio = match[1].trim();
-    Logger.log(`  ✅ Encontrado (patrón 1): "${datos.municipio}"`);
-  } else {
-    // Patrón 2: "Municipio-Departamento" o "Municipio, Departamento"
-    match = texto.match(/([A-Za-záéíóúñÁÉÍÓÚÑ]+)(?:,|\s-)\s+([A-Za-záéíóúñÁÉÍÓÚÑ]+)$/m);
-    if (match) {
-      datos.municipio = match[1].trim();
-      datos.departamento = match[2].trim();
-      Logger.log(`  ✅ Encontrado (patrón 2): "${datos.municipio}" - "${datos.departamento}"`);
-    } else {
-      Logger.log(`  ❌ No se encontró municipio`);
-    }
+    Logger.log(`  ✅ Encontrado: "${datos.municipio}"`);
   }
   
-  // ===== EXTRAE TIPO DE OFICIO =====
+  // EXTRAE TIPO DE OFICIO
   Logger.log(`[REGEX] Buscando tipo de oficio...`);
-  
   if (textoMin.includes("pliego de cargos")) {
     datos.tipo_oficio = "Pliego de Cargos";
     match = texto.match(/PC\s+(\d{4,})/i);
     if (match) datos.numero_oficio = "PC " + match[1];
-    Logger.log(`  ✅ Tipo: Pliego de Cargos | Número: ${datos.numero_oficio}`);
   } 
   else if (textoMin.includes("emplazamiento")) {
     datos.tipo_oficio = "Emplazamiento";
     match = texto.match(/Emplazamiento[^\n]*?No(?:\.|:)?\s*(\d+)/i);
     if (match) datos.numero_oficio = match[1];
-    Logger.log(`  ✅ Tipo: Emplazamiento | Número: ${datos.numero_oficio}`);
   }
   else if (textoMin.includes("requerimiento")) {
     datos.tipo_oficio = "Requerimiento";
     match = texto.match(/Oficio\s*[\:\#]?\s*(\d+)/i);
     if (match) datos.numero_oficio = match[1];
-    Logger.log(`  ✅ Tipo: Requerimiento | Número: ${datos.numero_oficio}`);
   }
   else if (textoMin.includes("certificación")) {
     datos.tipo_oficio = "Certificación";
     match = texto.match(/solicitud[^\n]*?(\d+)/i);
     if (match) datos.numero_oficio = match[1];
-    Logger.log(`  ✅ Tipo: Certificación | Número: ${datos.numero_oficio}`);
-  }
-  else {
-    Logger.log(`  ⚠️ Tipo de oficio no identificado`);
   }
   
-  // ===== EXTRAE FECHA VENCIMIENTO =====
-  Logger.log(`[REGEX] Buscando fecha de vencimiento...`);
-  
-  // Prioridad 1: Busca palabra "vencimiento"
+  // EXTRAE FECHA VENCIMIENTO
+  Logger.log(`[REGEX] Buscando fecha...`);
   match = texto.match(/vencimiento[^\n]*?(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
   if (match) {
     datos.fecha_vencimiento = convertirFecha(match[1], match[2], match[3]);
-    Logger.log(`  ✅ Encontrada (palabra clave): ${formatearFecha(datos.fecha_vencimiento)}`);
   } else {
-    // Prioridad 2: Formato DD/MM/YYYY
     match = texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
     if (match) {
       datos.fecha_vencimiento = new Date(match[3], match[2]-1, match[1]);
-      Logger.log(`  ✅ Encontrada (DD/MM/YYYY): ${formatearFecha(datos.fecha_vencimiento)}`);
     }
   }
   
-  // ===== EXTRAE PERIODOS (si existen) =====
+  // EXTRAE PERIODOS
   const periodos = texto.match(/\d{2}-\d{4}/g);
   if (periodos) {
     datos.periodos_afectados = [...new Set(periodos)];
-    Logger.log(`  ✅ Períodos: ${datos.periodos_afectados.join(", ")}`);
   }
   
   return datos;
@@ -278,13 +226,11 @@ function formatearFecha(date) {
 // ============================================================================
 
 function generaID_REQ() {
-  // Genera: REQ-YYYY-MM-DD-NNN
   const hoy = new Date();
   const año = hoy.getFullYear();
   const mes = (hoy.getMonth() + 1).toString().padStart(2, '0');
   const dia = hoy.getDate().toString().padStart(2, '0');
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  
   return `REQ-${año}-${mes}-${dia}-${random}`;
 }
 
@@ -293,7 +239,6 @@ function actualizaMunicipioEnTabla(municipio, departamento) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let refSheet = ss.getSheetByName("Municipios_Detectados");
     
-    // Si no existe, la crea
     if (!refSheet) {
       refSheet = ss.insertSheet("Municipios_Detectados");
       refSheet.appendRow([
@@ -304,19 +249,17 @@ function actualizaMunicipioEnTabla(municipio, departamento) {
     
     const datos = refSheet.getRange(2, 1, refSheet.getLastRow()-1, 5).getValues();
     
-    // Verifica si municipio ya existe
     for (let i = 0; i < datos.length; i++) {
       if (datos[i][0] === municipio) {
-        refSheet.getRange(i + 2, 4).setValue(new Date()); // Actualiza timestamp
+        refSheet.getRange(i + 2, 4).setValue(new Date());
         Logger.log(`📋 Municipio actualizado: ${municipio}`);
         return;
       }
     }
     
-    // Si no existe, agrega nueva fila
     refSheet.appendRow([
       municipio,
-      departamento || "[vacío - revisar]",
+      departamento || "[vacío]",
       new Date(),
       new Date(),
       "❌ Revisar"
@@ -324,7 +267,7 @@ function actualizaMunicipioEnTabla(municipio, departamento) {
     Logger.log(`📋 Municipio agregado: ${municipio}`);
     
   } catch (error) {
-    Logger.log(`⚠️ Error actualizando municipios: ${error}`);
+    Logger.log(`⚠️ Error municipios: ${error}`);
   }
 }
 
@@ -340,15 +283,123 @@ function crearRecordatorio(idReq, emailTimestamp, diasDespues) {
     };
     
     props.setProperty("recordatorios", JSON.stringify(recordatorios));
-    Logger.log(`⏰ Recordatorio creado para ${idReq} en ${diasDespues} día(s)`);
+    Logger.log(`⏰ Recordatorio creado para ${idReq}`);
     
   } catch (error) {
-    Logger.log(`⚠️ Error creando recordatorio: ${error}`);
+    Logger.log(`⚠️ Error recordatorio: ${error}`);
   }
 }
 
 // ============================================================================
-// 6. TESTING: Función para pruebas manuales
+// 6. ACTUALIZAR KPIs AUTOMÁTICAMENTE ⭐ NUEVO
+// ============================================================================
+
+function actualizaKPIs() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheetReqs = ss.getSheetByName("REQ LEGALES SEC HACIENDA");
+    let sheetKPIs = ss.getSheetByName("KPIs");
+    
+    // Si no existe hoja KPIs, la crea
+    if (!sheetKPIs) {
+      sheetKPIs = crearHojaKPIs();
+    }
+    
+    // Obtiene datos
+    const ultimaFila = sheetReqs.getLastRow();
+    if (ultimaFila <= 1) {
+      Logger.log("⚠️ Sin requerimientos aún");
+      return;
+    }
+    
+    const datos = sheetReqs.getRange(2, 1, ultimaFila-1, 20).getValues();
+    
+    // Calcula KPIs
+    let totalReqs = datos.length;
+    let resueltos = 0;
+    let porCompletados = 0;
+    let enAtraso = 0;
+    
+    datos.forEach(row => {
+      const status = row[1];
+      const fechaVencimiento = new Date(row[14]);
+      
+      if (status === "Resuelto") {
+        resueltos++;
+      } else if (status === "por-completar") {
+        porCompletados++;
+      }
+      
+      if (fechaVencimiento < new Date() && status !== "Resuelto") {
+        enAtraso++;
+      }
+    });
+    
+    // Calcula % cumplimiento
+    const porcentajeCumplimiento = totalReqs > 0 ? 
+      ((resueltos / totalReqs) * 100).toFixed(1) : 0;
+    
+    // Crea fila de KPIs
+    const filaKPIs = [
+      new Date(),
+      totalReqs,
+      resueltos,
+      porCompletados,
+      enAtraso,
+      porcentajeCumplimiento + "%",
+      "Actualizado"
+    ];
+    
+    // Agrega fila a KPIs
+    sheetKPIs.appendRow(filaKPIs);
+    
+    Logger.log(`✅ KPIs: Total=${totalReqs}, Resueltos=${resueltos}, Atraso=${enAtraso}, Cumpl=${porcentajeCumplimiento}%`);
+    
+  } catch (error) {
+    Logger.log(`❌ Error KPIs: ${error}`);
+  }
+}
+
+function crearHojaKPIs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.insertSheet("KPIs", 1);
+  
+  const headers = [
+    "FECHA_ACTUALIZACIÓN",
+    "TOTAL_REQS",
+    "RESUELTOS",
+    "POR_COMPLETAR",
+    "EN_ATRASO",
+    "% CUMPLIMIENTO",
+    "STATUS"
+  ];
+  
+  sheet.appendRow(headers);
+  
+  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange
+    .setBackground("#1F4E78")
+    .setFontColor("#FFFFFF")
+    .setFontWeight("bold")
+    .setHorizontalAlignment("center");
+  
+  sheet.setColumnWidth(1, 22);
+  sheet.setColumnWidth(2, 14);
+  sheet.setColumnWidth(3, 12);
+  sheet.setColumnWidth(4, 15);
+  sheet.setColumnWidth(5, 12);
+  sheet.setColumnWidth(6, 16);
+  sheet.setColumnWidth(7, 15);
+  
+  sheet.freezeRows(1);
+  
+  Logger.log("✅ Hoja KPIs creada");
+  
+  return sheet;
+}
+
+// ============================================================================
+// 7. TESTING: Función para pruebas manuales
 // ============================================================================
 
 function testeoExtraccion() {
@@ -365,18 +416,6 @@ Número: PC 0156
 Fecha vencimiento: 08 de octubre de 2024
 
 Medellín, Antioquia`
-    },
-    {
-      nombre: "Template 2: Bogotá - Emplazamiento",
-      asunto: "REQ-TEST-002 | Emplazamiento No. 2024-5847",
-      cuerpo: `La Secretaría de Hacienda de Bogotá-Cundinamarca requiere:
-
-Emplazamiento No: 2024-5847
-Periodos: 01-2024, 02-2024, 03-2024
-
-Vencimiento: 28 de septiembre de 2024
-
-Bogotá, Cundinamarca`
     }
   ];
   
@@ -389,35 +428,48 @@ Bogotá, Cundinamarca`
     
     Logger.log(`RESULTADOS:`);
     Logger.log(`  Municipio: ${datos.municipio}`);
-    Logger.log(`  Departamento: ${datos.departamento}`);
     Logger.log(`  Tipo Oficio: ${datos.tipo_oficio}`);
-    Logger.log(`  Número: ${datos.numero_oficio}`);
     Logger.log(`  Vencimiento: ${formatearFecha(datos.fecha_vencimiento)}`);
   });
 }
 
 // ============================================================================
-// 7. INSTALACIÓN Y CAMBIO A PRODUCCIÓN
+// ✅ FIN DEL CÓDIGO
 // ============================================================================
-
-/**
- * PASOS PARA INSTALAR:
- * 
- * TESTING (AHORA):
- * 1. Copia TODO este código
- * 2. Apps Script → pega
- * 3. Ejecuta: crearTriggerAutomatico()
- * 4. Crea label en Gmail: "Testing_Reqs"
- * 5. Envíate correos a ti misma
- * 6. Marca con label "Testing_Reqs"
- * 7. Espera 5 min → chequea Sheets
- * 
- * PRODUCCIÓN (Después):
- * Cambias la función verificaCorreosNuevos() para:
- * 
- * const threads = GmailApp.search(
- *   'to:notificacionesjudiciales@davivienda.co -label:Procesado newer_than:1d'
- * );
- * 
- * Y listo. Ahora captura correos reales.
- */
+// 
+// PASOS DE INSTALACIÓN:
+// 
+// 1. DESCARGA EXCEL
+//    ├─ Descarga: Requerimientos_Legales_Template.xlsx
+//    └─ Sube a Google Drive
+// 
+// 2. CONVIERTE A SHEETS
+//    ├─ Abre en Google Drive
+//    └─ Clic derecho → Abrir con → Google Sheets
+// 
+// 3. COPIA TODO ESTE CÓDIGO
+//    ├─ Extensions → Apps Script
+//    ├─ Elimina código por defecto
+//    └─ Pega TODO este código
+// 
+// 4. EJECUTA TRIGGER
+//    ├─ Clic en crearTriggerAutomatico()
+//    ├─ Ejecuta
+//    └─ Autoriza permisos
+// 
+// 5. SETUP GMAIL
+//    ├─ Abre Gmail
+//    ├─ Crea label: "Testing_Reqs"
+//    └─ Guarda
+// 
+// 6. PRUEBA
+//    ├─ Envíate a ti misma un correo (de CORREOS-REBECA-A-REBECA.md)
+//    ├─ Marca con label "Testing_Reqs"
+//    ├─ Espera 5 minutos
+//    └─ Chequea Sheets:
+//        ├─ Aparece fila en "REQ LEGALES SEC HACIENDA" ✅
+//        ├─ Aparece hoja "KPIs" ✅
+//        └─ Se agrega fila de KPIs ✅
+// 
+// ✅ LISTO - Sistema funcionando
+//
