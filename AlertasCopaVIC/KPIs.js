@@ -75,15 +75,19 @@ const KPI_COLUMNAS = [
    ============================================================ */
 
 function calcularKPIs() {
-  return calcularKPIsDesdeHoja(CONFIG.HOJA_LOAD);
+  return calcularKPIsDesdeHoja(CONFIG.HOJA_LOAD, false);
 }
 
-/** Versión de prueba: corre los KPIs sobre TRANSFORM2 sin tocar el histórico real. */
+/**
+ * Versión de prueba: corre los KPIs sobre TRANSFORM2 SIN tocar las hojas reales.
+ * Escribe en "KPIs_PRUEBA" y "KPIs_TABLERO_PRUEBA" en vez de "KPIs" y "KPIs_TABLERO",
+ * igual al patrón que ya usan enviarCorreosDiariosPrueba() y enviarReportePruebaJefes().
+ */
 function calcularKPIsPrueba() {
-  return calcularKPIsDesdeHoja('TRANSFORM2');
+  return calcularKPIsDesdeHoja('TRANSFORM2', true);
 }
 
-function calcularKPIsDesdeHoja(nombreHoja) {
+function calcularKPIsDesdeHoja(nombreHoja, esPrueba) {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
   const hoja = libro.getSheetByName(nombreHoja);
   if (!hoja) {
@@ -97,15 +101,21 @@ function calcularKPIsDesdeHoja(nombreHoja) {
 
   const m = kpiCalcularMetricas(datos, mapa, nombreHoja);
 
-  kpiEscribirHistorico(m);
-  kpiEscribirTablero(m, datos, mapa);
+  const sufijo = esPrueba ? '_PRUEBA' : '';
+  const hojaHistorico = KPI_CONFIG.HOJA_KPIS + sufijo;
+  const hojaTablero = KPI_CONFIG.HOJA_TABLERO + sufijo;
 
-  Logger.log('KPIs calculados sobre ' + nombreHoja + ': ' + m['Total Obligaciones'] + ' obligaciones, ' +
+  kpiEscribirHistorico(m, hojaHistorico);
+ // kpiEscribirTablero(m, datos, mapa, hojaTablero);
+
+  Logger.log('KPIs calculados sobre ' + nombreHoja + (esPrueba ? ' (PRUEBA, no afecta datos reales)' : '') +
+             ': ' + m['Total Obligaciones'] + ' obligaciones, ' +
              m['% Cumplimiento'] + '% cumplimiento, ' + m['% Tasa De Respuesta'] + '% tasa de respuesta.');
   libro.toast(
+    (esPrueba ? '[PRUEBA] ' : '') +
     m['Total Obligaciones'] + ' obligaciones · ' + m['% Cumplimiento'] + '% cumplimiento · ' +
     m['% Tasa De Respuesta'] + '% respuesta',
-    'KPIs actualizados', 8
+    esPrueba ? 'KPIs de prueba actualizados (' + hojaHistorico + ')' : 'KPIs actualizados', 8
   );
   return m;
 }
@@ -318,12 +328,12 @@ function kpiCalcularMetricas(datos, mapa, nombreHoja) {
    HOJA "KPIs" — registro histórico append-only
    ============================================================ */
 
-function kpiEscribirHistorico(metricas) {
+function kpiEscribirHistorico(metricas, nombreHojaDestino) {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
-  let hoja = libro.getSheetByName(KPI_CONFIG.HOJA_KPIS);
+  let hoja = libro.getSheetByName(nombreHojaDestino);
 
   if (!hoja) {
-    hoja = libro.insertSheet(KPI_CONFIG.HOJA_KPIS);
+    hoja = libro.insertSheet(nombreHojaDestino);
   }
 
   // Encabezado: se escribe solo si la hoja está vacía. Nunca se borra el histórico.
@@ -352,10 +362,10 @@ function kpiEscribirHistorico(metricas) {
    HOJA "KPIs_TABLERO" — vista para el jefe
    ============================================================ */
 
-function kpiEscribirTablero(m, datos, mapa) {
+function kpiEscribirTablero(m, datos, mapa, nombreHojaDestino) {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
-  let hoja = libro.getSheetByName(KPI_CONFIG.HOJA_TABLERO);
-  if (!hoja) hoja = libro.insertSheet(KPI_CONFIG.HOJA_TABLERO);
+  let hoja = libro.getSheetByName(nombreHojaDestino);
+  if (!hoja) hoja = libro.insertSheet(nombreHojaDestino);
 
   hoja.clear();
   const d = m._desgloses;
@@ -590,5 +600,53 @@ function onOpen() {
     .addItem('ETL + KPIs', 'ejecutarProcesoCompletoConKPIs')
     .addSeparator()
     .addItem('Calcular KPIs (prueba TRANSFORM2)', 'calcularKPIsPrueba')
+    .addSeparator()
+    .addItem('Activar trigger KPIs cada 5 min', 'crearTriggerKPIsCada5Min')
+    .addItem('Desactivar trigger KPIs', 'eliminarTriggerKPIs')
     .addToUi();
+}
+
+
+/* ============================================================
+   TRIGGER — calcularKPIs() cada 5 minutos
+   ============================================================ */
+
+/**
+ * Instala un trigger de tiempo que corre calcularKPIs() cada 5 minutos.
+ * Es idempotente: primero borra cualquier trigger anterior apuntando a
+ * 'calcularKPIs' para que nunca queden dos triggers disparando en paralelo
+ * (eso duplicaría cada fila del histórico).
+ *
+ * Nota de volumen: a cada 5 min esto agrega ~288 filas/día a la hoja "KPIs".
+ * Es una decisión intencional para tener el histórico lo más fino posible;
+ * si más adelante pesa mucho, se puede filtrar o resumir por día en un reporte aparte.
+ */
+function crearTriggerKPIsCada5Min() {
+  eliminarTriggerKPIs();
+  ScriptApp.newTrigger('calcularKPIs')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  Logger.log('Trigger creado: calcularKPIs() cada 5 minutos.');
+  SpreadsheetApp.getActiveSpreadsheet().toast('Trigger activado: KPIs se calculará cada 5 minutos.', 'Listo', 6);
+}
+
+/** Quita cualquier trigger existente que apunte a calcularKPIs (evita duplicados). */
+function eliminarTriggerKPIs() {
+  const triggers = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'calcularKPIs');
+  triggers.forEach(t => ScriptApp.deleteTrigger(t));
+  if (triggers.length > 0) {
+    Logger.log('Se eliminaron ' + triggers.length + ' trigger(s) previo(s) de calcularKPIs.');
+  }
+  return triggers.length;
+}
+
+/** Utilidad de diagnóstico: lista todos los triggers activos del proyecto. */
+function listarTriggersActivos() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => {
+    Logger.log(t.getHandlerFunction() + ' — ' + t.getEventType() + ' — ' + t.getTriggerSourceId());
+  });
+  return triggers.length;
 }
