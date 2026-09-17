@@ -1,11 +1,8 @@
-
 from google.colab import auth
 from googleapiclient.discovery import build
 import xml.etree.ElementTree as ET
 import pandas as pd
-from io import BytesIO
 
-# Autentica
 auth.authenticate_user()
 drive = build('drive', 'v3')
 
@@ -16,87 +13,115 @@ FOLDER_DESCARGADOS = "TU_ID_CARPETA_DESCARGAS"  # Los que bajaste de DIAN
 FOLDER_JEFA = "TU_ID_CARPETA_JEFA"             # Los que tu jefa tiene
 
 # ============================================
-# Funciones
-# ============================================
 
 def listar_xmls(folder_id):
-    """List todos los XMLs en una carpeta"""
     results = drive.files().list(
         q=f"'{folder_id}' in parents and name contains '.xml' and trashed=false",
         spaces='drive',
         fields='files(id, name)',
         pageSize=1000
     ).execute()
-    
-    files = results.get('files', [])
-    # Ordena por nombre para que queden secuenciales
-    return sorted(files, key=lambda x: x['name'])
+    return sorted(results.get('files', []), key=lambda x: x['name'])
 
 def descargar_xml(file_id):
-    """Descarga contenido del XML"""
     request = drive.files().get_media(fileId=file_id)
     return request.execute()
 
-def extraer_elementos(xml_content):
-    """Parsea XML y retorna dict de elementos con sus valores"""
+def recorrer_xml(elem, parent_path="", lista_elementos=None):
+    """Recorre TODO el XML y guarda cada etiqueta con su valor completo"""
+    if lista_elementos is None:
+        lista_elementos = []
+    
+    # Path actual
+    path = f"{parent_path}/{elem.tag}" if parent_path else elem.tag
+    
+    # Valor
+    valor = (elem.text.strip() if elem.text else "").replace('\n', ' ')
+    
+    # Atributos
+    atributos_str = " | ".join([f"{k}={v}" for k, v in elem.attrib.items()])
+    
+    # Guardar este elemento
+    lista_elementos.append({
+        'path': path,
+        'tag': elem.tag,
+        'valor': valor,
+        'atributos': atributos_str,
+        'tiene_datos': bool(valor or elem.attrib)
+    })
+    
+    # Recorrer hijos
+    for child in elem:
+        recorrer_xml(child, path, lista_elementos)
+    
+    return lista_elementos
+
+def parsear_xml_completo(xml_content):
+    """Parsea el XML y retorna lista de TODOS los elementos"""
     try:
         root = ET.fromstring(xml_content)
-        elementos = {}
-        
-        def recorrer(elem, path=""):
-            current_path = f"{path}/{elem.tag}"
-            # Guarda el elemento con su valor y atributos
-            elementos[current_path] = {
-                'valor': elem.text.strip() if elem.text else '',
-                'atributos': elem.attrib,
-                'tag': elem.tag
-            }
-            for child in elem:
-                recorrer(child, current_path)
-        
-        for child in root:
-            recorrer(child)
-        
+        elementos = recorrer_xml(root)
         return elementos
-    except:
-        return {}
+    except Exception as e:
+        print(f"Error parseando: {e}")
+        return []
 
-def comparar_xmls(elementos_dian, elementos_jefa, nombre_archivo):
-    """Compara dos XMLs y retorna diferencias"""
+def comparar_dos_xmls(elem_dian, elem_jefa, nombre_archivo):
+    """Compara dos listas de elementos y encuentra diferencias"""
     diferencias = []
     
-    # 1. Etiquetas que faltan en DIAN (están en jefa pero no en DIAN)
-    para_jefa = set(elementos_jefa.keys())
-    para_dian = set(elementos_dian.keys())
+    # Crear dict por path para buscar rápido
+    jefa_dict = {e['path']: e for e in elem_jefa}
+    dian_dict = {e['path']: e for e in elem_dian}
     
-    faltantes = para_jefa - para_dian
-    for elemento in faltantes:
-        valor_jefa = elementos_jefa[elemento]['valor']
+    # 1. Elementos que FALTAN en DIAN (están en Jefa pero no en DIAN)
+    paths_jefa = set(jefa_dict.keys())
+    paths_dian = set(dian_dict.keys())
+    
+    faltantes = paths_jefa - paths_dian
+    for path in sorted(faltantes):
+        elem_j = jefa_dict[path]
         diferencias.append({
             'Archivo': nombre_archivo,
-            'Tipo': 'FALTA en DIAN',
-            'Etiqueta': elemento.split('/')[-1],
-            'Ruta completa': elemento,
-            'Valor en Jefa': valor_jefa[:80] if valor_jefa else '(vacío)',
-            'Valor en DIAN': 'NO EXISTE',
-            'Crítico': '🔴 SÍ' if valor_jefa else '🟡 Revisar'
+            'Tipo': '❌ FALTA en DIAN',
+            'Etiqueta': elem_j['tag'],
+            'Ruta': path,
+            'Valor en Tu Archivo (DIAN)': '(NO EXISTE)',
+            'Valor en Archivo Jefa': elem_j['valor'][:100] if elem_j['valor'] else '(vacío)',
+            'Crítico': '🔴 CRÍTICO'
         })
     
-    # 2. Valores diferentes en etiquetas comunes
-    comunes = para_jefa & para_dian
-    for elemento in comunes:
-        val_jefa = elementos_jefa[elemento]['valor']
-        val_dian = elementos_dian[elemento]['valor']
+    # 2. Elementos que están en AMBOS pero con VALORES DIFERENTES
+    comunes = paths_jefa & paths_dian
+    for path in sorted(comunes):
+        elem_j = jefa_dict[path]
+        elem_d = dian_dict[path]
         
-        if val_jefa != val_dian:
+        val_j = elem_j['valor']
+        val_d = elem_d['valor']
+        
+        # Comparar valores
+        if val_j != val_d:
             diferencias.append({
                 'Archivo': nombre_archivo,
-                'Tipo': 'VALOR DIFERENTE',
-                'Etiqueta': elemento.split('/')[-1],
-                'Ruta completa': elemento,
-                'Valor en Jefa': val_jefa[:80],
-                'Valor en DIAN': val_dian[:80],
-                'Crítico': '🔴 SÍ'
+                'Tipo': '⚠️ VALOR DIFERENTE',
+                'Etiqueta': elem_j['tag'],
+                'Ruta': path,
+                'Valor en Tu Archivo (DIAN)': val_d[:100] if val_d else '(vacío)',
+                'Valor en Archivo Jefa': val_j[:100] if val_j else '(vacío)',
+                'Crítico': '🔴 CRÍTICO'
+            })
+        
+        # Comparar atributos
+        if elem_j['atributos'] != elem_d['atributos']:
+            diferencias.append({
+                'Archivo': nombre_archivo,
+                'Tipo': '⚠️ ATRIBUTOS DIFERENTES',
+                'Etiqueta': elem_j['tag'],
+                'Ruta': path,
+                'Valor en Tu Archivo (DIAN)': elem_d['atributos'][:100] if elem_d['atributos'] else '(sin atributos)',
+                'Valor en Archivo Jefa': elem_j['atributos'][:100] if elem_j['atributos'] else '(sin atributos)',
+                'Crítico': '🟡 REVISAR'
             })
     
     return diferencias
@@ -105,73 +130,77 @@ def comparar_xmls(elementos_dian, elementos_jefa, nombre_archivo):
 # EJECUCION
 # ============================================
 
-print("🔄 Leyendo archivos de ambas carpetas...")
+print("📥 Descargando listas de archivos...\n")
 
 xmls_dian = listar_xmls(FOLDER_DESCARGADOS)
 xmls_jefa = listar_xmls(FOLDER_JEFA)
 
-print(f"✅ Encontrados {len(xmls_dian)} archivos en DIAN")
-print(f"✅ Encontrados {len(xmls_jefa)} archivos de Jefa")
+print(f"✅ DIAN: {len(xmls_dian)} archivos")
+print(f"✅ JEFA: {len(xmls_jefa)} archivos\n")
 
-# Emparejar por nombre
+# Crear dicts por nombre
 dian_dict = {f['name']: f for f in xmls_dian}
 jefa_dict = {f['name']: f for f in xmls_jefa}
 
-todos_los_diffs = []
+todos_diffs = []
 
-print("\n🔍 Comparando archivos...\n")
+print("🔍 COMPARANDO CONTENIDO...\n")
 
 for nombre in sorted(dian_dict.keys()):
     if nombre in jefa_dict:
-        print(f"  Comparando: {nombre}")
+        print(f"  📄 {nombre}")
         
-        # Descargar ambos
-        contenido_dian = descargar_xml(dian_dict[nombre]['id'])
-        contenido_jefa = descargar_xml(jefa_dict[nombre]['id'])
+        # Descargar
+        cont_dian = descargar_xml(dian_dict[nombre]['id'])
+        cont_jefa = descargar_xml(jefa_dict[nombre]['id'])
         
-        # Extraer elementos
-        elem_dian = extraer_elementos(contenido_dian)
-        elem_jefa = extraer_elementos(contenido_jefa)
+        # Parsear
+        elem_dian = parsear_xml_completo(cont_dian)
+        elem_jefa = parsear_xml_completo(cont_jefa)
         
         # Comparar
-        diffs = comparar_xmls(elem_dian, elem_jefa, nombre)
-        todos_los_diffs.extend(diffs)
-    else:
-        print(f"  ⚠️ {nombre} NO EXISTE en carpeta de Jefa")
+        diffs = comparar_dos_xmls(elem_dian, elem_jefa, nombre)
+        todos_diffs.extend(diffs)
+        
+        if diffs:
+            print(f"     ⚠️ {len(diffs)} diferencia(s) encontrada(s)")
+        else:
+            print(f"     ✅ Idéntico")
 
 # ============================================
-# Exportar a XLSX
+# EXPORTAR
 # ============================================
-
-if todos_los_diffs:
-    df = pd.DataFrame(todos_los_diffs)
-    
-    # Guardar en CSV primero (más fácil en Colab)
-    csv_name = "comparacion_1020_DIAN_vs_JEFA.csv"
-    df.to_csv(csv_name, index=False, encoding='utf-8-sig')
-    
-    # Si quieres XLSX, también lo hacemos
-    xlsx_name = "comparacion_1020_DIAN_vs_JEFA.xlsx"
-    df.to_excel(xlsx_name, index=False, sheet_name='Diferencias')
-    
-    print(f"\n✅ EXPORTADO!")
-    print(f"   CSV: {csv_name}")
-    print(f"   XLSX: {xlsx_name}")
-    print(f"\n📊 RESUMEN:")
-    print(f"   Total diferencias encontradas: {len(todos_los_diffs)}")
-    print(f"\n   Por tipo:")
-    for tipo in df['Tipo'].unique():
-        count = len(df[df['Tipo'] == tipo])
-        criticos = len(df[(df['Tipo'] == tipo) & (df['Crítico'] == '🔴 SÍ')])
-        print(f"      {tipo}: {count} ({criticos} crítica(s))")
-    
-    # Vista previa de las primeras 10
-    print(f"\n📋 VISTA PREVIA (primeras 10):")
-    print(df[['Archivo', 'Tipo', 'Etiqueta', 'Valor en Jefa', 'Valor en DIAN', 'Crítico']].head(10).to_string(index=False))
-else:
-    print("\n✅ ¡Sin diferencias! Todos los archivos están iguales")
 
 print("\n" + "="*80)
-print("✨ Listo")
-print("="*80)
 
+if todos_diffs:
+    df = pd.DataFrame(todos_diffs)
+    
+    # Ordenar por archivo y criticidad
+    df['orden_critico'] = df['Crítico'].map({'🔴 CRÍTICO': 0, '🟡 REVISAR': 1})
+    df = df.sort_values(['Archivo', 'orden_critico']).drop('orden_critico', axis=1)
+    
+    # Exportar XLSX
+    xlsx_name = "comparacion_1020_DETALLADA.xlsx"
+    df.to_excel(xlsx_name, index=False, sheet_name='Diferencias', engine='openpyxl')
+    
+    print(f"✅ ARCHIVO EXPORTADO: {xlsx_name}\n")
+    print(f"📊 RESUMEN GENERAL:")
+    print(f"   Total diferencias: {len(todos_diffs)}")
+    print(f"\n   Por TIPO:")
+    for tipo in df['Tipo'].unique():
+        count = len(df[df['Tipo'] == tipo])
+        print(f"      {tipo}: {count}")
+    
+    print(f"\n   Por CRITICIDAD:")
+    print(f"      🔴 CRÍTICO: {len(df[df['Crítico'] == '🔴 CRÍTICO'])}")
+    print(f"      🟡 REVISAR: {len(df[df['Crítico'] == '🟡 REVISAR'])}")
+    
+    print(f"\n📋 PRIMERAS 15 DIFERENCIAS:")
+    cols_mostrar = ['Archivo', 'Tipo', 'Etiqueta', 'Valor en Tu Archivo (DIAN)', 'Valor en Archivo Jefa']
+    print(df[cols_mostrar].head(15).to_string(index=False))
+    
+else:
+    print("✅ NO HAY DIFERENCIAS - Todos los archivos son idénticos")
+
+print("\n" + "="*80)
