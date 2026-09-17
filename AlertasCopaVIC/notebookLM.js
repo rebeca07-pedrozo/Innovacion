@@ -1,14 +1,40 @@
+// ============================================================
+// BUZÓN NOTEBOOKLM → motorDeBusqueda
+// ============================================================
+
+const NUM_COLUMNAS_BUZON = 14;
+
+// --- Se dispara SOLA cada vez que se pega/edita algo en la columna A de "home" ---
 function onEditBuzon(e) {
   const hoja = e.range.getSheet();
   if (hoja.getName() !== "home") return;
-  if (e.range.getColumn() !== 1) return; // solo reacciona si el pegado fue en la columna A
+  if (e.range.getColumn() !== 1) return;
 
-  const ultimaFila = hoja.getLastRow();
-  if (ultimaFila === 0) return;
+  procesarBuzon_();
+}
 
-  const valoresColumnaA = hoja.getRange(1, 1, ultimaFila, 1).getValues().map(f => String(f[0]).trim());
+// --- Puedes correr esta manualmente desde el editor cuando quieras forzar el procesamiento ---
+function procesarBuzonManual() {
+  procesarBuzon_();
+}
 
+// --- Lógica compartida por las dos anteriores ---
+function procesarBuzon_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const hojaHome = ss.getSheetByName("home");
+  if (!hojaHome) {
+    Logger.log("No existe la pestaña 'home'.");
+    return;
+  }
+
+  const ultimaFila = hojaHome.getLastRow();
+  if (ultimaFila === 0) {
+    Logger.log("La pestaña 'home' está vacía.");
+    return;
+  }
+
+  const valoresColumnaA = hojaHome.getRange(1, 1, ultimaFila, 1).getValues().map(f => String(f[0]).trim());
+
   let hojaDestino = ss.getSheetByName("motorDeBusqueda");
   if (!hojaDestino) {
     hojaDestino = ss.insertSheet("motorDeBusqueda");
@@ -31,29 +57,26 @@ function onEditBuzon(e) {
       .setValues(filasNuevas);
   }
 
-  // Limpia TODA la columna A usada (no solo A1)
-  hoja.getRange(1, 1, ultimaFila, 1).clearContent();
+  hojaHome.getRange(1, 1, ultimaFila, 1).clearContent();
 
-  hoja.getRange("B1").setValue(
-    filasNuevas.length > 0
-      ? `✅ ${filasNuevas.length} documento(s) agregado(s) — ${new Date().toLocaleString()}`
-      : `⚠️ No se detectaron filas nuevas válidas. Revisa el contenido pegado. — ${new Date().toLocaleString()}`
-  );
+  const mensaje = filasNuevas.length > 0
+    ? `✅ ${filasNuevas.length} documento(s) agregado(s) — ${new Date().toLocaleString()}`
+    : `⚠️ No se detectaron filas nuevas válidas. Revisa el contenido pegado. — ${new Date().toLocaleString()}`;
+
+  hojaHome.getRange("B1").setValue(mensaje);
+  Logger.log(mensaje);
 }
 
 function agruparPorBloquesDe14_(lineas, nombresYaCargados) {
-  const NUM_COLUMNAS = 14;
-
   lineas = lineas.filter(l => l !== "");
 
-  // Salta el bloque de encabezado si está presente al inicio
   if (lineas[0] === "nombre_archivo") {
-    lineas = lineas.slice(NUM_COLUMNAS);
+    lineas = lineas.slice(NUM_COLUMNAS_BUZON);
   }
 
   const filas = [];
-  for (let i = 0; i + NUM_COLUMNAS <= lineas.length; i += NUM_COLUMNAS) {
-    const bloque = lineas.slice(i, i + NUM_COLUMNAS);
+  for (let i = 0; i + NUM_COLUMNAS_BUZON <= lineas.length; i += NUM_COLUMNAS_BUZON) {
+    const bloque = lineas.slice(i, i + NUM_COLUMNAS_BUZON);
     const nombreArchivo = bloque[0];
 
     if (nombreArchivo && !nombresYaCargados.has(nombreArchivo)) {
