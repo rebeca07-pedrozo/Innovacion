@@ -26,8 +26,8 @@ def descargar_xml(file_id):
     request = drive.files().get_media(fileId=file_id)
     return request.execute()
 
-def extraer_valores_exactos(xml_content, archivo_nombre):
-    """Extrae TODOS los valores de TODAS las etiquetas exactamente como están"""
+def extraer_valores(xml_content):
+    """Extrae todos los valores exactos del XML"""
     try:
         root = ET.fromstring(xml_content)
         valores = {}
@@ -35,16 +35,12 @@ def extraer_valores_exactos(xml_content, archivo_nombre):
         def recorrer(elem, path=""):
             current_path = f"{path}/{elem.tag}" if path else elem.tag
             
-            # Valor EXACTO (sin strip, sin transformaciones)
             valor_text = elem.text if elem.text else ""
-            
-            # Si hay atributos, incluirlos
             attrs_str = " | ".join([f"{k}={v}" for k, v in elem.attrib.items()])
             
             valores[current_path] = {
                 'valor': valor_text,
-                'atributos': attrs_str,
-                'tiene_contenido': bool(valor_text or elem.attrib)
+                'atributos': attrs_str
             }
             
             for child in elem:
@@ -55,80 +51,66 @@ def extraer_valores_exactos(xml_content, archivo_nombre):
         
         return valores
     except Exception as e:
-        print(f"Error en {archivo_nombre}: {e}")
+        print(f"Error: {e}")
         return {}
 
-def comparar_exacto(val_dian, val_jefa, nombre_archivo):
-    """Compara valores EXACTAMENTE iguales"""
+def comparar_archivos(val_dian, val_jefa, nombre_archivo):
+    """Compara dos archivos XML"""
     diferencias = []
     
     paths_dian = set(val_dian.keys())
     paths_jefa = set(val_jefa.keys())
     
-    # ETIQUETAS QUE FALTAN EN DIAN
+    # 1. ETIQUETAS QUE FALTAN EN DIAN (están en jefa pero NO en dian)
     faltantes = paths_jefa - paths_dian
     for path in sorted(faltantes):
         info_j = val_jefa[path]
+        valor_jefa = info_j['valor'] if info_j['valor'] else f"[ATRIBUTOS: {info_j['atributos']}]"
+        
         diferencias.append({
             'Archivo': nombre_archivo,
             'Etiqueta': path.split('/')[-1],
-            'Tipo': '❌ FALTA EN DIAN',
-            'Ruta': path,
-            'Tu Valor': '(NO EXISTE)',
-            'Valor Jefa': info_j['valor'][:100] if info_j['valor'] else '(vacío)',
-            'Atributos Jefa': info_j['atributos'][:100] if info_j['atributos'] else '-'
+            'Qué pasó': '❌ FALTA EN TU ARCHIVO',
+            'Ubicación (Ruta)': path,
+            'Lo que TÚ tienes': '(NO EXISTE)',
+            'Lo que JEFA tiene': valor_jefa[:150]
         })
     
-    # ETIQUETAS QUE SOBRAN EN DIAN
-    sobrantes = paths_dian - paths_jefa
-    for path in sorted(sobrantes):
-        info_d = val_dian[path]
-        diferencias.append({
-            'Archivo': nombre_archivo,
-            'Etiqueta': path.split('/')[-1],
-            'Tipo': '⚠️ EXTRA EN DIAN',
-            'Ruta': path,
-            'Tu Valor': info_d['valor'][:100] if info_d['valor'] else '(vacío)',
-            'Valor Jefa': '(NO EXISTE)',
-            'Atributos Jefa': '-'
-        })
-    
-    # VALORES DIFERENTES EN ETIQUETAS COMUNES
+    # 2. VALORES DIFERENTES (están en ambos pero distintos)
     comunes = paths_dian & paths_jefa
     for path in sorted(comunes):
         val_d = val_dian[path]['valor']
         val_j = val_jefa[path]['valor']
-        attr_d = val_dian[path]['atributos']
-        attr_j = val_jefa[path]['atributos']
         
-        # Compara valor exacto
         if val_d != val_j:
             diferencias.append({
                 'Archivo': nombre_archivo,
                 'Etiqueta': path.split('/')[-1],
-                'Tipo': '⚠️ VALOR DIFERENTE',
-                'Ruta': path,
-                'Tu Valor': val_d[:100] if val_d else '(vacío)',
-                'Valor Jefa': val_j[:100] if val_j else '(vacío)',
-                'Atributos Jefa': attr_j[:100] if attr_j else '-'
+                'Qué pasó': '⚠️ VALOR DIFERENTE',
+                'Ubicación (Ruta)': path,
+                'Lo que TÚ tienes': val_d[:150] if val_d else '(vacío)',
+                'Lo que JEFA tiene': val_j[:150] if val_j else '(vacío)'
             })
+    
+    # 3. ETIQUETAS QUE SOBRAN EN DIAN (están en dian pero NO en jefa)
+    sobrantes = paths_dian - paths_jefa
+    for path in sorted(sobrantes):
+        info_d = val_dian[path]
+        valor_dian = info_d['valor'] if info_d['valor'] else f"[ATRIBUTOS: {info_d['atributos']}]"
         
-        # Compara atributos
-        if attr_d != attr_j:
-            diferencias.append({
-                'Archivo': nombre_archivo,
-                'Etiqueta': path.split('/')[-1],
-                'Tipo': '⚠️ ATRIBUTOS DIFERENTES',
-                'Ruta': path,
-                'Tu Valor': attr_d[:100] if attr_d else '(sin atributos)',
-                'Valor Jefa': attr_j[:100] if attr_j else '(sin atributos)',
-                'Atributos Jefa': '-'
-            })
+        diferencias.append({
+            'Archivo': nombre_archivo,
+            'Etiqueta': path.split('/')[-1],
+            'Qué pasó': '⚠️ EXTRA EN TU ARCHIVO',
+            'Ubicación (Ruta)': path,
+            'Lo que TÚ tienes': valor_dian[:150],
+            'Lo que JEFA tiene': '(NO EXISTE)'
+        })
     
     return diferencias
 
 # ============================================
-# MAIN
+# EJECUCION
 # ============================================
 
 print("📥 Buscando XMLs...\n")
@@ -136,11 +118,11 @@ print("📥 Buscando XMLs...\n")
 xmls_dian = listar_xmls(FOLDER_DESCARGADOS)
 xmls_jefa = listar_xmls(FOLDER_JEFA)
 
-print(f"✅ DIAN: {len(xmls_dian)} XMLs")
-print(f"✅ JEFA: {len(xmls_jefa)} XMLs\n")
+print(f"✅ TU CARPETA (DIAN): {len(xmls_dian)} XMLs")
+print(f"✅ CARPETA JEFA: {len(xmls_jefa)} XMLs\n")
 
 if len(xmls_dian) == 0:
-    print("❌ NO SE ENCONTRARON XMLS - VERIFICA IDS")
+    print("❌ NO ENCONTRÉ XMLS - VERIFICA LOS IDS")
 else:
     dian_dict = {f['name']: f for f in xmls_dian}
     jefa_dict = {f['name']: f for f in xmls_jefa}
@@ -148,46 +130,46 @@ else:
     todos_diffs = []
     contador = 0
     
-    print("🔍 COMPARANDO (ESTO TOMA UN TIEMPO)...\n")
+    print("🔍 COMPARANDO (esto toma un rato)...\n")
     
     for nombre in sorted(dian_dict.keys()):
         contador += 1
         if contador % 10 == 1:
-            print(f"  {contador}/{len(dian_dict)}")
+            print(f"  Procesando: {contador}/{len(dian_dict)}")
         
         if nombre in jefa_dict:
             try:
                 cont_dian = descargar_xml(dian_dict[nombre]['id'])
                 cont_jefa = descargar_xml(jefa_dict[nombre]['id'])
                 
-                val_dian = extraer_valores_exactos(cont_dian, nombre)
-                val_jefa = extraer_valores_exactos(cont_jefa, nombre)
+                val_dian = extraer_valores(cont_dian)
+                val_jefa = extraer_valores(cont_jefa)
                 
-                diffs = comparar_exacto(val_dian, val_jefa, nombre)
+                diffs = comparar_archivos(val_dian, val_jefa, nombre)
                 todos_diffs.extend(diffs)
                 
             except Exception as e:
                 print(f"     ❌ Error: {e}")
     
-    print(f"\n✅ COMPLETADO\n")
-    print(f"📊 DIFERENCIAS ENCONTRADAS: {len(todos_diffs)}\n")
+    print(f"\n✅ COMPARACION COMPLETADA\n")
+    print(f"📊 TOTAL DIFERENCIAS ENCONTRADAS: {len(todos_diffs)}\n")
     
     if len(todos_diffs) > 0:
         df = pd.DataFrame(todos_diffs)
         
-        # Contar por tipo
-        print("Por TIPO:")
-        for tipo in df['Tipo'].unique():
-            count = len(df[df['Tipo'] == tipo])
-            print(f"  {tipo}: {count}")
+        # Resumen
+        print("📋 RESUMEN:")
+        for tipo in df['Qué pasó'].unique():
+            count = len(df[df['Qué pasó'] == tipo])
+            print(f"  {tipo}: {count} diferencias")
         
         # Exportar
-        xlsx_file = "COMPARACION_1020_EXACTA.xlsx"
+        xlsx_file = "COMPARACION_1020_DETALLADA.xlsx"
         
         with pd.ExcelWriter(xlsx_file, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Diferencias', index=False)
             
-            # Formato
+            # FORMATO
             from openpyxl.styles import PatternFill, Font, Alignment
             ws = writer.sheets['Diferencias']
             
@@ -200,12 +182,13 @@ else:
                 cell.font = header_font
                 cell.alignment = Alignment(wrap_text=True)
             
-            # Colorear filas
+            # Colorear filas por tipo
             for idx, row in df.iterrows():
-                tipo = row['Tipo']
-                if '❌' in tipo:
+                tipo = row['Qué pasó']
+                
+                if '❌' in tipo:  # FALTA
                     fill = PatternFill(start_color="FF6666", end_color="FF6666", fill_type="solid")
-                elif '⚠️' in tipo:
+                elif '⚠️' in tipo:  # DIFERENTE
                     fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
                 else:
                     fill = None
@@ -213,28 +196,32 @@ else:
                 if fill:
                     for cell in ws[idx + 2]:
                         cell.fill = fill
-                        cell.alignment = Alignment(wrap_text=True)
+                        cell.alignment = Alignment(wrap_text=True, vertical='top')
             
-            # Ajustar ancho
-            ws.column_dimensions['Ruta'].width = 50
-            ws.column_dimensions['Tu Valor'].width = 40
-            ws.column_dimensions['Valor Jefa'].width = 40
-            ws.column_dimensions['Archivo'].width = 40
+            # Ajustar anchos
+            ws.column_dimensions['Archivo'].width = 45
+            ws.column_dimensions['Ubicación (Ruta)'].width = 60
+            ws.column_dimensions['Lo que TÚ tienes'].width = 45
+            ws.column_dimensions['Lo que JEFA tiene'].width = 45
+            ws.column_dimensions['Qué pasó'].width = 25
             
-            # Alto filas
-            ws.row_dimensions[1].height = 25
+            # Altura filas
+            ws.row_dimensions[1].height = 30
+            for row in ws.iter_rows(min_row=2, max_row=len(df)+1):
+                ws.row_dimensions[row[0].row].height = 40
         
-        print(f"✅ EXCEL GUARDADO: {xlsx_file}\n")
-        print("📥 DESCARGANDO...\n")
+        print(f"\n✅ EXCEL GUARDADO: {xlsx_file}")
+        print("📥 DESCARGANDO AUTOMÁTICAMENTE...\n")
         
-        # DESCARGAR AUTOMATICO
         files.download(xlsx_file)
         
-        print("✅ DESCARGA COMPLETA")
-        print("\n📋 PRIMERAS 15 DIFERENCIAS:")
-        print(df[['Archivo', 'Tipo', 'Etiqueta', 'Tu Valor', 'Valor Jefa']].head(15).to_string(index=False))
+        print("✅ ¡DESCARGA LISTA!\n")
+        print("="*80)
+        print("PRIMERAS 20 DIFERENCIAS:")
+        print("="*80 + "\n")
+        print(df[['Archivo', 'Qué pasó', 'Etiqueta', 'Lo que TÚ tienes', 'Lo que JEFA tiene']].head(20).to_string(index=False))
     
     else:
-        print("✅ SIN DIFERENCIAS - TODO IDÉNTICO")
+        print("✅ SIN DIFERENCIAS - TODO ESTÁ IGUAL")
 
 print("\n" + "="*80)
