@@ -1,300 +1,198 @@
-# ============================================================
-# COMPARADOR FORMATO 1020
-# DESCARGAS DIAN vs ORIGINALES (archivos de la jefa)
-# Los archivos se llaman igual en las dos carpetas
-# ============================================================
+# ===========================================================
+# COMPARADOR XML FORMATO 1020 (CDT) - DIAN vs carpeta jefa
+# Cruza por llave nid + ntit, sin importar orden ni archivo
+# ===========================================================
+ID_CARPETA_DIAN = "PEGA_AQUI_EL_ID"   # XML que descargué de la DIAN
+ID_CARPETA_JEFA = "PEGA_AQUI_EL_ID"   # carpeta "de mas" de la jefa
+SALIDA = "comparacion_1020.xlsx"
+CLAVE = ["nid", "ntit"]               # puedes agregar "ttitu","tmov" si quieres clave mas estricta
 
+import io
+import xml.etree.ElementTree as ET
+from collections import Counter
+import pandas as pd
 from google.colab import auth, files
 from googleapiclient.discovery import build
-from openpyxl.styles import PatternFill, Font, Alignment
-from openpyxl.utils import get_column_letter
-from collections import Counter
-import xml.etree.ElementTree as ET
-import pandas as pd
+from googleapiclient.http import MediaIoBaseDownload
 
 auth.authenticate_user()
-drive = build('drive', 'v3')
+drive = build("drive", "v3")
 
-# ---------------- CONFIGURACIÓN ----------------
+CAMPOS = ["tdoc","nid","dv","apl1","apl2","nom1","nom2","raz","dir","dpto","mun",
+          "pais","ntit","ttitu","tmov","salini","inv","vintca","vintpa","retfup","salfin"]
+CAMPOS_SEC = ["cpts","tdocs","nids","dvs","apl1s","apl2s","nom1s","nom2s","razs"]
+CAMPOS_CAB = ["Ano","CodCpt","Formato","Version","NumEnvio","FecEnvio","FecInicial",
+              "FecFinal","ValorTotal","CantReg"]
+NUMERICOS = {"tdoc","dv","dpto","mun","pais","ntit","ttitu","tmov","salini","inv",
+             "vintca","vintpa","retfup","salfin","cpts","tdocs","dvs"}
 
-FOLDER_DIAN = "1UbGhdnJb2b5RbLRj3gCizK84fYMOGvl5"       # Lo que descargaste de la DIAN
-FOLDER_ORIGINAL = "1eGZidzTrh19b5M6a30DjhR14X39dq-_a"   # Lo que se cargó (archivos de tu jefa)
+# ---------- lectura ----------
+def limpiar(campo, valor):
+    v = (valor or "").strip()
+    if campo in NUMERICOS and v.isdigit():
+        return str(int(v))          # quita ceros a la izquierda
+    return " ".join(v.upper().split())
 
-NOMBRE_DIAN = "DESCARGAS DIAN"
-NOMBRE_ORIGINAL = "ORIGINALES"
+def listar_xml(id_carpeta):
+    lista, token = [], None
+    while True:
+        r = drive.files().list(
+            q=f"'{id_carpeta}' in parents and trashed=false",
+            fields="nextPageToken, files(id,name)", pageSize=1000, pageToken=token,
+            supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+        lista += [a for a in r.get("files", []) if a["name"].lower().endswith(".xml")]
+        token = r.get("nextPageToken")
+        if not token:
+            return lista
 
-CAMPOS_LLAVE = ['tdoc', 'nid', 'ntit', 'ttitu', 'tmov']
-ARCHIVO_EXCEL = "COMPARACION_1020.xlsx"
+def bajar(id_archivo):
+    buffer = io.BytesIO()
+    descarga = MediaIoBaseDownload(buffer, drive.files().get_media(fileId=id_archivo))
+    fin = False
+    while not fin:
+        _, fin = descarga.next_chunk()
+    return buffer.getvalue()
 
-# ---------------- TEXTOS ----------------
+def leer_carpeta(id_carpeta, origen):
+    registros, cabeceras = [], []
+    for archivo in listar_xml(id_carpeta):
+        raiz = ET.fromstring(bajar(archivo["id"]))
+        for nodo in raiz.iter():                       # por si vienen con namespace
+            if "}" in nodo.tag:
+                nodo.tag = nodo.tag.split("}", 1)[1]
+        cab = {"origen": origen, "archivo": archivo["name"]}
+        nodo_cab = raiz.find("Cab")
+        for c in CAMPOS_CAB:
+            hijo = nodo_cab.find(c) if nodo_cab is not None else None
+            cab[c] = (hijo.text or "").strip() if hijo is not None else ""
+        cabeceras.append(cab)
+        for i, inv in enumerate(raiz.findall("invcdt"), start=1):
+            registros.append({
+                "origen": origen, "archivo": archivo["name"], "fila": i,
+                "datos": {c: limpiar(c, inv.get(c)) for c in CAMPOS},
+                "sec": [{c: limpiar(c, s.get(c)) for c in CAMPOS_SEC}
+                        for s in inv.findall("titSec")]})
+    return registros, cabeceras
 
-SIN_DATO = {'', 'NO REGISTRA'}
-IGUAL = "Igual"
-CON_DIFERENCIAS = "Línea con diferencias"
-SOLO_ESPACIOS = "Solo cambian espacios o mayúsculas"
-FALTA_EN_DIAN = f"Línea que no está en {NOMBRE_DIAN}"
-FALTA_EN_ORIGINAL = f"Línea que no está en {NOMBRE_ORIGINAL}"
+def firma_sec(reg):
+    return sorted(tuple(s[c] for c in CAMPOS_SEC) for s in reg["sec"])
 
-# ---------------- FUNCIONES ----------------
+def firma(reg):
+    return (tuple(reg["datos"][c] for c in CAMPOS), tuple(firma_sec(reg)))
 
-def listar_xmls(folder_id):
-    resultado = drive.files().list(
-        q=f"'{folder_id}' in parents and trashed=false",
-        spaces='drive', fields='files(id, name)', pageSize=1000
-    ).execute()
-    archivos = resultado.get('files', [])
-    return sorted([f for f in archivos if f['name'].lower().endswith('.xml')],
-                  key=lambda x: x['name'])
-
-
-def descargar_xml(file_id):
-    return drive.files().get_media(fileId=file_id).execute()
-
-
-def unir_campos(campos):
-    return " | ".join(f"{k}={v}" for k, v in campos.items())
-
-
-def leer_xml(contenido):
-    """Separa el encabezado (Cab) y las líneas de un XML"""
-    root = ET.fromstring(contenido)
-    encabezado = {}
-    lineas = {}
-    for elem in root:
-        if elem.tag.lower() == 'cab':
-            for campo in elem:
-                encabezado[campo.tag] = campo.text or ''
-            continue
-        llave = (elem.tag,) + tuple(elem.attrib.get(c, '').strip() for c in CAMPOS_LLAVE)
-        linea = {
-            'campos': dict(elem.attrib),
-            'sub': sorted(f"{h.tag}: {unir_campos(h.attrib)}" for h in elem)  # ej: titSec
-        }
-        lineas.setdefault(llave, []).append(linea)
-    for llave in lineas:
-        lineas[llave].sort(key=lambda l: unir_campos(l['campos']))
-    return encabezado, lineas
-
-
-def mostrar(valor):
-    if valor is None:
-        return '(no existe)'
-    return valor if valor.strip() else '(vacío)'
-
-
-def explicar(v_dian, v_orig):
-    """Explica en palabras simples por qué un dato es distinto"""
-    if v_dian is None:
-        return 'falta_dian', f"Está en {NOMBRE_ORIGINAL} pero no en {NOMBRE_DIAN}"
-    if v_orig is None:
-        return 'falta_orig', f"Está en {NOMBRE_DIAN} pero no en {NOMBRE_ORIGINAL}"
-    a, b = v_dian.strip().upper(), v_orig.strip().upper()
-    if a == b:
-        return 'espacios', "Mismo dato, solo cambian espacios o mayúsculas"
-    if a in SIN_DATO:
-        return 'sin_dato_dian', f"En {NOMBRE_DIAN} dice {mostrar(v_dian).strip()}, pero en {NOMBRE_ORIGINAL} sí tiene dato"
-    if b in SIN_DATO:
-        return 'sin_dato_orig', f"En {NOMBRE_ORIGINAL} dice {mostrar(v_orig).strip()}, pero en {NOMBRE_DIAN} sí tiene dato"
-    return 'diferente', "El dato es diferente"
-
-
-def comparar_linea(linea_dian, linea_orig):
-    """Compara etiqueta por etiqueta una misma línea"""
-    detalles = []
-    c_dian, c_orig = linea_dian['campos'], linea_orig['campos']
-    etiquetas = list(c_orig) + [e for e in c_dian if e not in c_orig]
-    for etiqueta in etiquetas:
-        v_dian, v_orig = c_dian.get(etiqueta), c_orig.get(etiqueta)
-        if v_dian != v_orig:
-            tipo, texto = explicar(v_dian, v_orig)
-            detalles.append((etiqueta, v_dian, v_orig, tipo, texto))
-
-    # Subregistros dentro de la línea (ej: titulares secundarios titSec)
-    sub_dian, sub_orig = Counter(linea_dian['sub']), Counter(linea_orig['sub'])
-    for s in (sub_orig - sub_dian).elements():
-        etiqueta, contenido = s.split(': ', 1)
-        detalles.append((etiqueta, None, contenido, 'sub_falta_dian',
-                         f"Este {etiqueta} está en {NOMBRE_ORIGINAL} pero no en {NOMBRE_DIAN}"))
-    for s in (sub_dian - sub_orig).elements():
-        etiqueta, contenido = s.split(': ', 1)
-        detalles.append((etiqueta, contenido, None, 'sub_falta_orig',
-                         f"Este {etiqueta} está en {NOMBRE_DIAN} pero no en {NOMBRE_ORIGINAL}"))
-    return detalles
-
-
-def resumir(detalles):
-    """Arma una frase corta con lo que pasó en la línea"""
-    frases = {
-        'falta_dian': f"Faltan en {NOMBRE_DIAN}",
-        'falta_orig': f"Sobran en {NOMBRE_DIAN}",
-        'sin_dato_dian': f"Dicen NO REGISTRA o vacío en {NOMBRE_DIAN} pero tienen dato en {NOMBRE_ORIGINAL}",
-        'sin_dato_orig': f"Dicen NO REGISTRA o vacío en {NOMBRE_ORIGINAL} pero tienen dato en {NOMBRE_DIAN}",
-        'diferente': "Datos diferentes",
-        'espacios': "Solo cambian espacios o mayúsculas",
-        'sub_falta_dian': f"Subregistros que faltan en {NOMBRE_DIAN}",
-        'sub_falta_orig': f"Subregistros que sobran en {NOMBRE_DIAN}",
-    }
+def agrupar(registros):
     grupos = {}
-    for etiqueta, _, _, tipo, _ in detalles:
-        grupos.setdefault(tipo, []).append(etiqueta)
-    return ". ".join(f"{frases[t]} ({len(e)}): {', '.join(e)}" for t, e in grupos.items())
+    for r in registros:
+        clave = tuple(r["datos"][c] for c in CLAVE)
+        grupos.setdefault(clave, []).append(r)
+    return grupos
 
+reg_dian, cab_dian = leer_carpeta(ID_CARPETA_DIAN, "DIAN")
+reg_jefa, cab_jefa = leer_carpeta(ID_CARPETA_JEFA, "JEFA")
+g_dian, g_jefa = agrupar(reg_dian), agrupar(reg_jefa)
 
-def evaluar(linea_dian, linea_orig):
-    if linea_dian is None:
-        return FALTA_EN_DIAN, f"La línea completa está en {NOMBRE_ORIGINAL} pero no en {NOMBRE_DIAN}", []
-    if linea_orig is None:
-        return FALTA_EN_ORIGINAL, f"La línea completa está en {NOMBRE_DIAN} pero no en {NOMBRE_ORIGINAL}", []
-    detalles = comparar_linea(linea_dian, linea_orig)
-    if not detalles:
-        return IGUAL, '', []
-    if all(d[3] == 'espacios' for d in detalles):
-        return SOLO_ESPACIOS, resumir(detalles), detalles
-    return CON_DIFERENCIAS, resumir(detalles), detalles
+# ---------- comparacion ----------
+diferencias, filas_cab = [], []
+iguales = 0
 
+def nombre_titular(d):
+    return (d["raz"] or f'{d["nom1"]} {d["apl1"]}').strip()
 
-def emparejar(lista_dian, lista_orig):
-    total = max(len(lista_dian), len(lista_orig))
-    return [(lista_dian[i] if i < len(lista_dian) else None,
-             lista_orig[i] if i < len(lista_orig) else None) for i in range(total)]
+def nombre_sec(s):
+    nombre = s["razs"] or " ".join(x for x in [s["nom1s"], s["apl1s"], s["apl2s"]] if x)
+    return f'{nombre} ({s["nids"]})'.strip()
 
+def foto_linea(r):
+    d = r["datos"]
+    return (f'ttitu={d["ttitu"]} | tmov={d["tmov"]} | salini={d["salini"]} | '
+            f'inv={d["inv"]} | vintca={d["vintca"]} | vintpa={d["vintpa"]} | '
+            f'retfup={d["retfup"]} | salfin={d["salfin"]} | titSec={len(r["sec"])}')
 
-def datos_llave(llave):
-    return {'Tipo de línea': llave[0], **dict(zip(CAMPOS_LLAVE, llave[1:]))}
+def anotar(clave, titular, tipo, etiqueta, val_dian, val_jefa, ra=None, rb=None):
+    diferencias.append({
+        "llave (nid | ntit)": " | ".join(clave), "nid": clave[0], "ntit": clave[1],
+        "titular": titular, "tipo_diferencia": tipo, "etiqueta": etiqueta,
+        "valor_DIAN": val_dian, "valor_JEFA": val_jefa,
+        "archivo_DIAN": ra["archivo"] if ra else "", "fila_DIAN": ra["fila"] if ra else "",
+        "archivo_JEFA": rb["archivo"] if rb else "", "fila_JEFA": rb["fila"] if rb else ""})
 
+for clave in sorted(set(g_dian) | set(g_jefa)):
+    lista_dian = list(g_dian.get(clave, []))
+    pend_jefa = list(g_jefa.get(clave, []))
+    pend_dian = []
+    for ra in lista_dian:                              # 1) saca los identicos
+        pareja = next((rb for rb in pend_jefa if firma(rb) == firma(ra)), None)
+        if pareja is not None:
+            pend_jefa.remove(pareja)
+            iguales += 1
+        else:
+            pend_dian.append(ra)
 
-def contar(linea):
-    return len(linea['campos']) if linea else 0
+    for ra, rb in zip(pend_dian, pend_jefa):           # 2) se cruzan por llave pero difieren
+        titular = nombre_titular(ra["datos"])
+        for c in CAMPOS:
+            if ra["datos"][c] != rb["datos"][c]:
+                anotar(clave, titular, "Valor diferente", c,
+                       ra["datos"][c] or "(vacio)", rb["datos"][c] or "(vacio)", ra, rb)
+        sa = Counter(tuple(s[c] for c in CAMPOS_SEC) for s in ra["sec"])
+        sb = Counter(tuple(s[c] for c in CAMPOS_SEC) for s in rb["sec"])
+        for s in (sb - sa).elements():
+            anotar(clave, titular, "Etiqueta que NO esta en el archivo de la DIAN", "titSec",
+                   "(no existe)", nombre_sec(dict(zip(CAMPOS_SEC, s))), ra, rb)
+        for s in (sa - sb).elements():
+            anotar(clave, titular, "Etiqueta que NO esta en el archivo de la JEFA", "titSec",
+                   nombre_sec(dict(zip(CAMPOS_SEC, s))), "(no existe)", ra, rb)
 
+    for ra in pend_dian[len(pend_jefa):]:              # 3) registros que no existen al otro lado
+        anotar(clave, nombre_titular(ra["datos"]),
+               "Registro que NO esta en el archivo de la JEFA", "invcdt",
+               foto_linea(ra), "(no existe)", ra, None)
+    for rb in pend_jefa[len(pend_dian):]:
+        anotar(clave, nombre_titular(rb["datos"]),
+               "Registro que NO esta en el archivo de la DIAN", "invcdt",
+               "(no existe)", foto_linea(rb), None, rb)
 
-def texto_linea(linea):
-    if linea is None:
-        return '(no existe)'
-    texto = unir_campos(linea['campos'])
-    if linea['sub']:
-        texto += "  ||  " + "  ||  ".join(linea['sub'])
-    return texto
+# ---------- encabezados (solo lo que no coincide) ----------
+nombres = sorted({c["archivo"] for c in cab_dian} | {c["archivo"] for c in cab_jefa})
+for nombre in nombres:
+    a = next((c for c in cab_dian if c["archivo"] == nombre), None)
+    b = next((c for c in cab_jefa if c["archivo"] == nombre), None)
+    for c in CAMPOS_CAB:
+        va = a[c] if a else "(no esta en la carpeta DIAN)"
+        vb = b[c] if b else "(no esta en la carpeta JEFA)"
+        if va != vb:
+            filas_cab.append({"archivo": nombre, "etiqueta": c,
+                              "valor_DIAN": va, "valor_JEFA": vb})
 
+# ---------- resumen ----------
+conteo = Counter(f["tipo_diferencia"] for f in diferencias)
+resumen = [
+    {"concepto": "Archivos en carpeta DIAN", "valor": len({c['archivo'] for c in cab_dian})},
+    {"concepto": "Archivos en carpeta JEFA", "valor": len({c['archivo'] for c in cab_jefa})},
+    {"concepto": "Registros invcdt en DIAN", "valor": len(reg_dian)},
+    {"concepto": "Registros invcdt en JEFA", "valor": len(reg_jefa)},
+    {"concepto": "Lineas identicas", "valor": iguales},
+    {"concepto": "Llaves con alguna diferencia",
+     "valor": len({f["llave (nid | ntit)"] for f in diferencias})},
+    {"concepto": "Total diferencias encontradas", "valor": len(diferencias)}]
+resumen += [{"concepto": f"  - {t}", "valor": n} for t, n in sorted(conteo.items())]
+resumen += [{"concepto": "Encabezados con diferencia", "valor": len(filas_cab)}]
 
-def fila_linea(base, situacion, resumen, linea_dian, linea_orig):
-    fila = dict(base)
-    fila.update({
-        'Situación': situacion,
-        f'Etiquetas en {NOMBRE_DIAN}': contar(linea_dian),
-        f'Etiquetas en {NOMBRE_ORIGINAL}': contar(linea_orig),
-        'Qué pasó': resumen,
-        f'Línea en {NOMBRE_DIAN}': texto_linea(linea_dian),
-        f'Línea en {NOMBRE_ORIGINAL}': texto_linea(linea_orig),
-    })
-    return fila
+# ---------- excel ----------
+def guardar(libro, datos, hoja):
+    df = pd.DataFrame(datos) if datos else pd.DataFrame([{"resultado": "sin diferencias"}])
+    df.to_excel(libro, sheet_name=hoja, index=False)
 
+with pd.ExcelWriter(SALIDA, engine="openpyxl") as libro:
+    guardar(libro, resumen, "RESUMEN")
+    guardar(libro, diferencias, "DIFERENCIAS")
+    guardar(libro, filas_cab, "ENCABEZADOS")
+    for hoja in libro.book.worksheets:                 # ancho de columna y filtro
+        hoja.freeze_panes = "A2"
+        hoja.auto_filter.ref = hoja.dimensions
+        for columna in hoja.columns:
+            largo = max(len(str(celda.value or "")) for celda in columna)
+            hoja.column_dimensions[columna[0].column_letter].width = min(max(largo + 2, 12), 60)
 
-def fila_detalle(base, etiqueta, v_dian, v_orig, texto):
-    fila = dict(base)
-    fila.update({
-        'Etiqueta': etiqueta,
-        f'Valor en {NOMBRE_DIAN}': mostrar(v_dian),
-        f'Valor en {NOMBRE_ORIGINAL}': mostrar(v_orig),
-        'Qué pasó': texto,
-    })
-    return fila
-
-
-def guardar_excel(hojas):
-    with pd.ExcelWriter(ARCHIVO_EXCEL, engine='openpyxl') as writer:
-        for nombre_hoja, df in hojas.items():
-            if df.empty:
-                df = pd.DataFrame({'Resultado': ['Sin diferencias']})
-            df.to_excel(writer, sheet_name=nombre_hoja, index=False)
-            ws = writer.sheets[nombre_hoja]
-            for celda in ws[1]:
-                celda.fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
-                celda.font = Font(bold=True, color="1F3864")
-                celda.alignment = Alignment(wrap_text=True, vertical='center')
-            for i, col in enumerate(df.columns, start=1):
-                largo = max([len(str(col))] + [len(str(v)) for v in df[col].head(200)])
-                ws.column_dimensions[get_column_letter(i)].width = min(max(largo + 2, 10), 60)
-            ws.freeze_panes = 'A2'
-            ws.auto_filter.ref = ws.dimensions
-
-# ---------------- COMPARACIÓN ----------------
-
-print("Leyendo carpetas...")
-xmls_dian = {f['name']: f for f in listar_xmls(FOLDER_DIAN)}
-xmls_orig = {f['name']: f for f in listar_xmls(FOLDER_ORIGINAL)}
-print(f"{NOMBRE_DIAN}: {len(xmls_dian)} archivos")
-print(f"{NOMBRE_ORIGINAL}: {len(xmls_orig)} archivos\n")
-
-filas_resumen, filas_aparte, filas_linea, filas_detalle = [], [], [], []
-todos = sorted(set(xmls_dian) | set(xmls_orig))
-
-for n, nombre in enumerate(todos, start=1):
-    if n % 10 == 1:
-        print(f"Comparando {n}/{len(todos)}")
-
-    if nombre not in xmls_dian:
-        filas_aparte.append({'Archivo': nombre, 'Estado': f'Solo existe en {NOMBRE_ORIGINAL}'})
-        continue
-    if nombre not in xmls_orig:
-        filas_aparte.append({'Archivo': nombre, 'Estado': f'Solo existe en {NOMBRE_DIAN}'})
-        continue
-
-    try:
-        enc_dian, lineas_dian = leer_xml(descargar_xml(xmls_dian[nombre]['id']))
-        enc_orig, lineas_orig = leer_xml(descargar_xml(xmls_orig[nombre]['id']))
-    except Exception as e:
-        filas_aparte.append({'Archivo': nombre, 'Estado': f'Error al leer: {e}'})
-        continue
-
-    # Encabezado
-    dif_encabezado = 0
-    base_cab = {'Archivo': nombre, 'Tipo de línea': 'Encabezado (Cab)', **{c: '' for c in CAMPOS_LLAVE}}
-    for campo in list(enc_orig) + [c for c in enc_dian if c not in enc_orig]:
-        v_dian, v_orig = enc_dian.get(campo), enc_orig.get(campo)
-        if v_dian != v_orig:
-            dif_encabezado += 1
-            _, texto = explicar(v_dian, v_orig)
-            filas_detalle.append(fila_detalle(base_cab, campo, v_dian, v_orig, texto))
-
-    # Líneas
-    conteo = Counter()
-    for llave in sorted(set(lineas_dian) | set(lineas_orig)):
-        base = {'Archivo': nombre, **datos_llave(llave)}
-        for linea_dian, linea_orig in emparejar(lineas_dian.get(llave, []), lineas_orig.get(llave, [])):
-            situacion, resumen, detalles = evaluar(linea_dian, linea_orig)
-            conteo[situacion] += 1
-            if situacion == IGUAL:
-                continue
-            filas_linea.append(fila_linea(base, situacion, resumen, linea_dian, linea_orig))
-            for etiqueta, v_dian, v_orig, _, texto in detalles:
-                filas_detalle.append(fila_detalle(base, etiqueta, v_dian, v_orig, texto))
-
-    filas_resumen.append({
-        'Archivo': nombre,
-        'Estado': 'Comparado',
-        f'Líneas en {NOMBRE_DIAN}': sum(len(v) for v in lineas_dian.values()),
-        f'Líneas en {NOMBRE_ORIGINAL}': sum(len(v) for v in lineas_orig.values()),
-        'Líneas iguales': conteo[IGUAL],
-        'Líneas con diferencias': conteo[CON_DIFERENCIAS],
-        'Solo cambian espacios': conteo[SOLO_ESPACIOS],
-        f'Líneas que no están en {NOMBRE_DIAN}': conteo[FALTA_EN_DIAN],
-        f'Líneas que no están en {NOMBRE_ORIGINAL}': conteo[FALTA_EN_ORIGINAL],
-        'Diferencias en encabezado': dif_encabezado,
-    })
-
-# ---------------- EXCEL ----------------
-
-df_resumen = pd.DataFrame(filas_resumen + filas_aparte)
-df_linea = pd.DataFrame(filas_linea)
-df_detalle = pd.DataFrame(filas_detalle)
-
-print(f"\nLíneas con algún problema: {len(df_linea)}")
-print(f"Etiquetas con diferencias: {len(df_detalle)}")
-if not df_linea.empty:
-    print("\nPor tipo:")
-    print(df_linea['Situación'].value_counts().to_string())
-
-print("\nGenerando Excel...")
-guardar_excel({'Resumen': df_resumen, 'Por línea': df_linea, 'Detalle por etiqueta': df_detalle})
-print(f"Excel listo: {ARCHIVO_EXCEL}")
-files.download(ARCHIVO_EXCEL)
+print(pd.DataFrame(resumen).to_string(index=False))
+files.download(SALIDA)
