@@ -13,7 +13,7 @@
       --text-muted: #6b6b6b;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #FAF7F8; color: var(--text-dark); }
+    body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #FAF7F8; color: var(--text-dark); overflow-x: hidden; }
 
     header {
       background: linear-gradient(135deg, var(--davivienda-red), var(--davivienda-red-dark));
@@ -27,31 +27,13 @@
     header h1 { color: white; font-size: 21px; margin: 0; font-weight: 600; }
     header p { color: #ffd7de; margin: 2px 0 0 0; font-size: 13px; }
 
-    .tabs {
-      display: flex;
-      gap: 6px;
-      max-width: 880px;
-      margin: 24px auto 0;
-      padding: 0 20px;
-    }
+    .tabs { display: flex; gap: 6px; max-width: 880px; margin: 24px auto 0; padding: 0 20px; }
     .tab-btn {
-      flex: 1;
-      padding: 12px 14px;
-      border: none;
-      background: white;
-      color: var(--text-muted);
-      font-weight: 600;
-      font-size: 13.5px;
-      border-radius: 10px 10px 0 0;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      transition: all 0.2s;
+      flex: 1; padding: 12px 14px; border: none; background: white; color: var(--text-muted);
+      font-weight: 600; font-size: 13.5px; border-radius: 10px 10px 0 0; cursor: pointer;
+      border-bottom: 3px solid transparent; transition: all 0.2s;
     }
-    .tab-btn.activo {
-      color: var(--davivienda-red-dark);
-      border-bottom: 3px solid var(--davivienda-red);
-      background: white;
-    }
+    .tab-btn.activo { color: var(--davivienda-red-dark); border-bottom: 3px solid var(--davivienda-red); background: white; }
 
     .contenedor { max-width: 880px; margin: 0 auto; padding: 20px 20px 60px; background: white; border-radius: 0 0 12px 12px; }
 
@@ -86,52 +68,68 @@
     .resultado .fragmento { font-size: 14px; line-height: 1.55; }
     .resultado mark { background: #FFD7DE; color: var(--davivienda-red-dark); padding: 1px 3px; border-radius: 3px; font-weight: 600; }
 
-    /* Sección de apoyo interno (discreta, visualmente distinta de los resultados principales) */
-    .seccion-apoyo {
-      margin-top: 26px;
-      padding-top: 18px;
-      border-top: 1px dashed #e3c4cb;
+    .btn-ver-doc {
+      display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; font-weight: 600;
+      color: white; text-decoration: none; background: var(--davivienda-red); border: none;
+      padding: 6px 14px; border-radius: 20px; cursor: pointer; transition: background 0.2s;
     }
-    .seccion-apoyo .titulo-apoyo {
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .resultado-apoyo {
-      background: #FBFBFB;
-      border-left: 3px solid #d8d8d8;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 10px;
-    }
-    .resultado-apoyo .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 10px; flex-wrap: wrap; }
-    .resultado-apoyo .archivo { font-weight: 600; color: var(--text-dark); font-size: 12.5px; }
-    .resultado-apoyo .pagina {
-      font-size: 11px; background: #ccc; color: white;
-      padding: 2px 9px; border-radius: 10px; white-space: nowrap;
-    }
-    .resultado-apoyo .fragmento { font-size: 13px; line-height: 1.5; color: #444; }
-    .btn-pdf {
-      display: inline-block; margin-top: 8px; font-size: 12px; font-weight: 600;
-      color: var(--davivienda-red-dark); text-decoration: none; border: 1.5px solid var(--davivienda-red);
-      padding: 4px 11px; border-radius: 20px; transition: all 0.2s;
-    }
-    .btn-pdf:hover { background: var(--davivienda-red); color: white; }
-    .sin-pdf { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; display: inline-block; }
+    .btn-ver-doc:hover { background: var(--davivienda-red-dark); }
+    .sin-pdf { font-size: 11.5px; color: var(--text-muted); margin-top: 8px; display: inline-block; }
 
     .vacio, .cargando { text-align: center; color: var(--text-muted); padding: 36px 0; font-size: 14px; }
     .cargando { color: var(--davivienda-red-dark); }
     .panel { display: none; }
     .panel.activo { display: block; }
+
+    /* ---------- Panel lateral (drawer) para ver el PDF ---------- */
+    .overlay-pdf {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.35); opacity: 0; pointer-events: none;
+      transition: opacity 0.25s; z-index: 999;
+    }
+    .overlay-pdf.abierto { opacity: 1; pointer-events: auto; }
+
+    .panel-pdf {
+      position: fixed; top: 0; right: 0; height: 100%;
+      width: 55%; min-width: 340px; max-width: 900px;
+      background: white; box-shadow: -6px 0 24px rgba(0,0,0,0.18);
+      transform: translateX(100%); transition: transform 0.3s ease;
+      z-index: 1000; display: flex; flex-direction: column;
+    }
+    .panel-pdf.abierto { transform: translateX(0); }
+
+    .panel-pdf-header {
+      background: linear-gradient(135deg, var(--davivienda-red), var(--davivienda-red-dark));
+      color: white; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+    }
+    .panel-pdf-header .nombre-doc {
+      font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; flex: 1;
+    }
+    .panel-pdf-header button {
+      background: rgba(255,255,255,0.18); border: none; color: white; width: 30px; height: 30px;
+      border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .panel-pdf-header button:hover { background: rgba(255,255,255,0.32); }
+
+    .panel-pdf-body { flex: 1; position: relative; background: #f2f2f2; }
+    .panel-pdf-body iframe { width: 100%; height: 100%; border: none; }
+    .panel-pdf-mensaje {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted); font-size: 13.5px; padding: 30px; text-align: center;
+    }
+
+    @media (max-width: 700px) {
+      .panel-pdf { width: 100%; min-width: 0; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <img src="data:image/png;base64,PEGA_AQUI_EL_BASE64_DEL_LOGO" alt="Davivienda">
+    <img src="data:image/png;base64,PEGA_AQUI_TU_BASE64" alt="Davivienda">
     <div>
       <h1>Buscador de Normativas</h1>
       <p>Vicepresidencia de Contabilidad · Davivienda</p>
@@ -141,6 +139,7 @@
   <div class="tabs">
     <button class="tab-btn activo" onclick="cambiarTab('compendio')">Compendio DIAN</button>
     <button class="tab-btn" onclick="cambiarTab('sentencias')">Sentencias</button>
+    <button class="tab-btn" onclick="cambiarTab('propias')">Normativas Propias</button>
   </div>
 
   <div class="contenedor">
@@ -155,7 +154,6 @@
       </div>
       <div id="estadoCompendio" class="estado"></div>
       <div id="resultadosCompendio"></div>
-      <div id="apoyoCompendio"></div>
     </div>
 
     <!-- PANEL: Sentencias -->
@@ -168,13 +166,35 @@
       </div>
       <div id="estadoSentencias" class="estado"></div>
       <div id="resultadosSentencias"></div>
-      <div id="apoyoSentencias"></div>
+    </div>
+
+    <!-- PANEL: Normativas Propias -->
+    <div id="panel-propias" class="panel">
+      <div class="buscador">
+        <input type="text" id="inputPropias" placeholder="Buscar en tema, resumen, conclusión..."
+               onkeydown="if(event.key==='Enter') buscarPropiasUI()">
+        <select id="filtroTipoDocPropias"><option value="TODOS">Todos los tipos</option></select>
+        <select id="filtroTipoImpuestoPropias"><option value="TODOS">Todos los impuestos</option></select>
+        <button onclick="buscarPropiasUI()">Buscar</button>
+      </div>
+      <div id="estadoPropias" class="estado"></div>
+      <div id="resultadosPropias"></div>
     </div>
 
   </div>
 
+  <!-- Panel lateral para visualizar el PDF -->
+  <div class="overlay-pdf" id="overlayPdf" onclick="cerrarPanelPDF()"></div>
+  <div class="panel-pdf" id="panelPdf">
+    <div class="panel-pdf-header">
+      <span class="nombre-doc" id="nombreDocPanel">Documento</span>
+      <button onclick="cerrarPanelPDF()" title="Cerrar">✕</button>
+    </div>
+    <div class="panel-pdf-body" id="cuerpoPanelPdf"></div>
+  </div>
+
   <script>
-    // --- Manejo de pestañas ---
+    // --- Pestañas ---
     function cambiarTab(nombre) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('activo'));
@@ -182,12 +202,16 @@
       event.target.classList.add('activo');
     }
 
-    // --- Poblar los desplegables de tipo de impuesto al cargar ---
+    // --- Desplegables ---
     window.onload = function() {
       google.script.run.withSuccessHandler(tipos => llenarSelect_('filtroTipoCompendio', tipos))
         .obtenerTiposImpuesto('Compendio Completo Doctrina y Conceptos DIAN');
       google.script.run.withSuccessHandler(tipos => llenarSelect_('filtroTipoSentencias', tipos))
         .obtenerTiposImpuesto('Sentencias');
+      google.script.run.withSuccessHandler(tipos => llenarSelect_('filtroTipoDocPropias', tipos))
+        .obtenerTiposDocumentoPropio();
+      google.script.run.withSuccessHandler(tipos => llenarSelect_('filtroTipoImpuestoPropias', tipos))
+        .obtenerTiposImpuestoPropio();
     };
 
     function llenarSelect_(idSelect, tipos) {
@@ -199,87 +223,109 @@
       });
     }
 
-    // --- PANEL: Compendio DIAN ---
+    // --- Compendio DIAN ---
     function buscarCompendioUI() {
       const termino = document.getElementById('inputCompendio').value.trim();
       const tipo = document.getElementById('filtroTipoCompendio').value;
       const estado = document.getElementById('estadoCompendio');
       const cont = document.getElementById('resultadosCompendio');
-      const apoyo = document.getElementById('apoyoCompendio');
 
       estado.innerHTML = '<div class="cargando">Buscando…</div>';
-      cont.innerHTML = ""; apoyo.innerHTML = "";
+      cont.innerHTML = "";
 
       google.script.run
-        .withSuccessHandler(data => mostrarResultadosConApoyo_(data, estado, cont, apoyo))
+        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
         .withFailureHandler(err => mostrarError_(err, estado, cont))
         .buscarCompendio(termino, tipo);
     }
 
-    // --- PANEL: Sentencias ---
+    // --- Sentencias ---
     function buscarSentenciasUI() {
       const termino = document.getElementById('inputSentencias').value.trim();
       const tipo = document.getElementById('filtroTipoSentencias').value;
       const estado = document.getElementById('estadoSentencias');
       const cont = document.getElementById('resultadosSentencias');
-      const apoyo = document.getElementById('apoyoSentencias');
 
       estado.innerHTML = '<div class="cargando">Buscando…</div>';
-      cont.innerHTML = ""; apoyo.innerHTML = "";
+      cont.innerHTML = "";
 
       google.script.run
-        .withSuccessHandler(data => mostrarResultadosConApoyo_(data, estado, cont, apoyo))
+        .withSuccessHandler(data => mostrarResultadosDoctrina_(data, estado, cont))
         .withFailureHandler(err => mostrarError_(err, estado, cont))
         .buscarSentencias(termino, tipo);
     }
 
-    // --- Renderizado compartido: resultados principales + sección de apoyo interno ---
-    function mostrarResultadosConApoyo_(data, estado, cont, apoyoCont) {
-      const principal = data.principal;
-      const apoyo = data.apoyo;
+    function mostrarResultadosDoctrina_(data, estado, cont) {
+      if (data.total === 0) { estado.textContent = ""; cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>'; return; }
+      estado.textContent = data.total + " resultado(s) encontrado(s).";
+      cont.innerHTML = data.resultados.map(r => `
+        <div class="resultado">
+          <span class="tag-tipo">${r.tipoImpuesto || "Sin clasificar"}</span>
+          <div class="titulo-doc">${r.numero ? r.numero + " — " : ""}${r.titulo}</div>
+          <div class="fecha-doc">${r.fecha}</div>
+          <div class="fragmento">${r.resumen}</div>
+        </div>
+      `).join("");
+    }
 
-      if (principal.total === 0) {
-        estado.textContent = "";
-        cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>';
-      } else {
-        estado.textContent = principal.total + " resultado(s) encontrado(s).";
-        cont.innerHTML = principal.resultados.map(r => `
-          <div class="resultado">
-            <span class="tag-tipo">${r.tipoImpuesto || "Sin clasificar"}</span>
-            <div class="titulo-doc">${r.numero ? r.numero + " — " : ""}${r.titulo}</div>
-            <div class="fecha-doc">${r.fecha}</div>
-            <div class="fragmento">${r.resumen}</div>
-          </div>
-        `).join("");
-      }
+    // --- Normativas Propias ---
+    function buscarPropiasUI() {
+      const termino = document.getElementById('inputPropias').value.trim();
+      const tipoDoc = document.getElementById('filtroTipoDocPropias').value;
+      const tipoImp = document.getElementById('filtroTipoImpuestoPropias').value;
+      const estado = document.getElementById('estadoPropias');
+      const cont = document.getElementById('resultadosPropias');
 
-      // Sección de apoyo interno: solo se muestra si hay coincidencias, sin explicar de dónde viene
-      if (apoyo && apoyo.total > 0) {
-        apoyoCont.innerHTML = `
-          <div class="seccion-apoyo">
-            <div class="titulo-apoyo">📎 Referencias adicionales relacionadas</div>
-            ${apoyo.resultados.map(r => `
-              <div class="resultado-apoyo">
-                <div class="meta">
-                  <span class="archivo">${r.archivo}</span>
-                  <span class="pagina">Pág. ${r.pagina}</span>
-                </div>
-                <div class="fragmento">${r.fragmento}</div>
-                ${r.urlPdf
-                  ? `<a class="btn-pdf" href="${r.urlPdf}" target="_blank">Abrir documento ↗</a>`
-                  : `<span class="sin-pdf">Documento no localizado en Drive</span>`}
-              </div>
-            `).join("")}
-          </div>
-        `;
-      } else {
-        apoyoCont.innerHTML = "";
-      }
+      estado.innerHTML = '<div class="cargando">Buscando…</div>';
+      cont.innerHTML = "";
+
+      google.script.run
+        .withSuccessHandler(data => mostrarResultadosPropias_(data, estado, cont))
+        .withFailureHandler(err => mostrarError_(err, estado, cont))
+        .buscarNormativasPropias(termino, tipoDoc, tipoImp);
+    }
+
+    function mostrarResultadosPropias_(data, estado, cont) {
+      if (data.total === 0) { estado.textContent = ""; cont.innerHTML = '<div class="vacio">No se encontraron resultados.</div>'; return; }
+      estado.textContent = data.total + " resultado(s) encontrado(s).";
+      cont.innerHTML = data.resultados.map(r => `
+        <div class="resultado">
+          <span class="tag-tipo">${r.tipoDocumento || "Sin clasificar"} · ${r.tipoImpuesto || "Sin clasificar"}</span>
+          <div class="titulo-doc">${r.radicado ? r.radicado + " — " : ""}${r.tema}</div>
+          <div class="fecha-doc">${r.entidad || ""} ${r.fecha ? "· " + r.fecha : ""}</div>
+          <div class="fragmento"><strong>Consulta:</strong> ${r.pregunta || "No especificado"}</div>
+          <div class="fragmento" style="margin-top:6px"><strong>Respuesta:</strong> ${r.resumen || "No especificado"}</div>
+          <div class="fragmento" style="margin-top:6px"><strong>Conclusión:</strong> ${r.conclusion || "No especificado"}</div>
+          ${r.urlPreview
+            ? `<button class="btn-ver-doc" onclick='abrirPanelPDF(${JSON.stringify(r.urlPreview)}, ${JSON.stringify(r.archivo)})'>📄 Ver documento</button>`
+            : `<span class="sin-pdf">Documento no localizado en Drive</span>`}
+        </div>
+      `).join("");
     }
 
     function mostrarError_(error, estado, cont) {
       estado.textContent = "";
       cont.innerHTML = '<div class="vacio">Ocurrió un error: ' + error.message + '</div>';
+    }
+
+    // --- Panel lateral de PDF ---
+    function abrirPanelPDF(urlPreview, nombreArchivo) {
+      document.getElementById('nombreDocPanel').textContent = nombreArchivo;
+      document.getElementById('panelPdf').classList.add('abierto');
+      document.getElementById('overlayPdf').classList.add('abierto');
+
+      const cuerpo = document.getElementById('cuerpoPanelPdf');
+      if (!urlPreview) {
+        cuerpo.innerHTML = '<div class="panel-pdf-mensaje">No se pudo localizar este documento en Drive.</div>';
+        return;
+      }
+      cuerpo.innerHTML = '<iframe src="' + urlPreview + '"></iframe>';
+    }
+
+    function cerrarPanelPDF() {
+      document.getElementById('panelPdf').classList.remove('abierto');
+      document.getElementById('overlayPdf').classList.remove('abierto');
+      setTimeout(() => { document.getElementById('cuerpoPanelPdf').innerHTML = ''; }, 300);
     }
   </script>
 </body>
