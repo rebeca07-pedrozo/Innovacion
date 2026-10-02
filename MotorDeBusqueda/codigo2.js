@@ -2,8 +2,7 @@
 // CONFIGURACIÓN
 // ============================================================
 const CONFIG = {
-  // --- Normativas propias (ahora estructurado, ya no texto crudo por página) ---
-  SHEET_MOTOR: "motorDeBusqueda",
+  SHEET_MOTOR: "texto_detallado",
   COL_ARCHIVO: "nombre_archivo",
   COL_TIPO_DOC: "tipo_documento",
   COL_ENTIDAD: "entidad_emisora",
@@ -19,7 +18,6 @@ const CONFIG = {
   COL_CONCLUSION: "conclusion_clave",
   COL_PALABRAS: "palabras_clave",
 
-  // --- Compendio DIAN / Sentencias (Excel del abogado) ---
   COMPENDIO_SPREADSHEET_ID: "1R4gZpTwd1PBaE8yj3ruJezQYoqmrOUuGUfSRmMOFtGE",
   HOJA_COMPENDIO: "Compendio Completo Doctrina y Conceptos DIAN",
   HOJA_SENTENCIAS: "Sentencias",
@@ -29,8 +27,7 @@ const CONFIG = {
   COL_TIPO_IMPUESTO: "Tipo de Impuesto Evaluado",
   COL_RESUMEN: "Resumen",
 
-  MAX_RESULTADOS: 50,
-  CARACTERES_CONTEXTO: 240
+  MAX_RESULTADOS: 50
 };
 
 function doGet() {
@@ -40,21 +37,51 @@ function doGet() {
 }
 
 // ============================================================
-// BÚSQUEDA: Compendio DIAN
+// BÚSQUEDA UNIFICADA (lo que llama la interfaz)
 // ============================================================
-function buscarCompendio(termino, tipoImpuesto) {
-  const resultado = buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, tipoImpuesto);
-  registrarBusqueda_("Compendio DIAN", termino, resultado.total);
-  return resultado;
+function buscarTodo(termino, tipoImpuesto) {
+  if (!termino || termino.trim().length < 2) return { resultados: [] };
+
+  const filtro = tipoImpuesto || "TODOS";
+
+  const compendio = buscarEnHojaExterna_(CONFIG.HOJA_COMPENDIO, termino, filtro);
+  const sentencias = buscarEnHojaExterna_(CONFIG.HOJA_SENTENCIAS, termino, filtro);
+  const propias = buscarNormativasPropias(termino, "TODOS", filtro).resultados;
+
+  const resultados = [];
+
+  compendio.resultados.forEach(r => resultados.push({
+    titulo: r.titulo,
+    fecha: r.fecha,
+    detalle: r.resumen,
+    urlPreview: null
+  }));
+
+  sentencias.resultados.forEach(r => resultados.push({
+    titulo: r.titulo,
+    fecha: r.fecha,
+    detalle: r.resumen,
+    urlPreview: null
+  }));
+
+  propias.forEach(r => resultados.push({
+    titulo: r.tema,
+    fecha: r.fecha,
+    detalle: r.resumen,
+    urlPreview: r.urlPreview,
+    archivo: r.archivo
+  }));
+
+  registrarBusqueda_("Búsqueda unificada", termino, resultados.length);
+  return { resultados: resultados, total: resultados.length };
 }
 
-// ============================================================
-// BÚSQUEDA: Sentencias
-// ============================================================
-function buscarSentencias(termino, tipoImpuesto) {
-  const resultado = buscarEnHojaExterna_(CONFIG.HOJA_SENTENCIAS, termino, tipoImpuesto);
-  registrarBusqueda_("Sentencias", termino, resultado.total);
-  return resultado;
+function obtenerTodosLosTiposImpuesto() {
+  const deCompendio = obtenerTiposImpuesto(CONFIG.HOJA_COMPENDIO);
+  const deSentencias = obtenerTiposImpuesto(CONFIG.HOJA_SENTENCIAS);
+  const dePropias = obtenerTiposImpuestoPropio();
+  const set = new Set([...deCompendio, ...deSentencias, ...dePropias]);
+  return Array.from(set).sort();
 }
 
 // ============================================================
@@ -84,7 +111,7 @@ function buscarNormativasPropias(termino, tipoDocumento, tipoImpuesto) {
   const iPalabras = idx(CONFIG.COL_PALABRAS);
 
   const tieneTermino = termino && termino.trim().length >= 2;
-  const terminoNorm = tieneTermino ? quitarTildes_(termino.trim()) : "";
+  const palabrasBuscadas = tieneTermino ? tokenizar_(termino) : [];
   const resultados = [];
 
   for (let i = 1; i < datos.length; i++) {
@@ -94,13 +121,12 @@ function buscarNormativasPropias(termino, tipoDocumento, tipoImpuesto) {
     if (tipoDocumento && tipoDocumento !== "TODOS" && String(fila[iTipoDoc]).trim() !== tipoDocumento) continue;
     if (tipoImpuesto && tipoImpuesto !== "TODOS" && String(fila[iImpuesto]).trim() !== tipoImpuesto) continue;
 
-    if (tieneTermino) {
-      const bolsaTexto = quitarTildes_([
-        fila[iTema], fila[iSubtema], fila[iPregunta], fila[iResumen],
-        fila[iConclusion], fila[iPalabras], fila[iArticulos], fila[iNormasRef]
-      ].join(" "));
-      if (bolsaTexto.indexOf(terminoNorm) === -1) continue;
-    }
+    const bolsaTexto = quitarTildes_([
+      fila[iTema], fila[iSubtema], fila[iPregunta], fila[iResumen],
+      fila[iConclusion], fila[iPalabras], fila[iArticulos], fila[iNormasRef]
+    ].join(" "));
+
+    if (tieneTermino && !contieneTodasLasPalabras_(bolsaTexto, palabrasBuscadas)) continue;
 
     const nombreArchivo = String(fila[iNombre]);
     const infoDrive = obtenerInfoDrivePorNombre_(nombreArchivo);
@@ -126,7 +152,6 @@ function buscarNormativasPropias(termino, tipoDocumento, tipoImpuesto) {
     if (resultados.length >= CONFIG.MAX_RESULTADOS) break;
   }
 
-  registrarBusqueda_("Normativas Propias", termino, resultados.length);
   return { resultados: resultados, total: resultados.length };
 }
 
@@ -152,7 +177,7 @@ function buscarEnHojaExterna_(nombreHoja, termino, tipoImpuesto) {
   const idxTipo   = encabezados.indexOf(CONFIG.COL_TIPO_IMPUESTO);
   const idxResumen = encabezados.indexOf(CONFIG.COL_RESUMEN);
 
-  const terminoNorm = tieneTermino ? quitarTildes_(termino.trim()) : "";
+  const palabrasBuscadas = tieneTermino ? tokenizar_(termino) : [];
   const resultados = [];
 
   for (let i = 1; i < datos.length; i++) {
@@ -165,7 +190,7 @@ function buscarEnHojaExterna_(nombreHoja, termino, tipoImpuesto) {
 
     if (tieneTermino) {
       const combinado = quitarTildes_(titulo + " " + resumen);
-      if (combinado.indexOf(terminoNorm) === -1) continue;
+      if (!contieneTodasLasPalabras_(combinado, palabrasBuscadas)) continue;
     }
 
     resultados.push({
@@ -283,86 +308,20 @@ function actualizarKPIs() {
 }
 
 // ============================================================
-// BUZÓN NOTEBOOKLM → motorDeBusqueda
-// ============================================================
-const NUM_COLUMNAS_BUZON = 14;
-
-function onEditBuzon(e) {
-  const hoja = e.range.getSheet();
-  if (hoja.getName() !== "home") return;
-  if (e.range.getColumn() !== 1) return;
-  procesarBuzon_();
-}
-
-function procesarBuzonManual() {
-  procesarBuzon_();
-}
-
-function procesarBuzon_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const hojaHome = ss.getSheetByName("home");
-  if (!hojaHome) return;
-
-  const ultimaFila = hojaHome.getLastRow();
-  if (ultimaFila === 0) return;
-
-  const valoresColumnaA = hojaHome.getRange(1, 1, ultimaFila, 1).getValues().map(f => String(f[0]).trim());
-
-  let hojaDestino = ss.getSheetByName(CONFIG.SHEET_MOTOR);
-  if (!hojaDestino) {
-    hojaDestino = ss.insertSheet(CONFIG.SHEET_MOTOR);
-    hojaDestino.appendRow([
-      "nombre_archivo", "tipo_documento", "entidad_emisora", "tipo_impuesto",
-      "tema", "subtema", "radicado", "fecha", "pregunta_consulta",
-      "resumen_respuesta", "articulos_citados", "normas_referenciadas",
-      "conclusion_clave", "palabras_clave"
-    ]);
-  }
-
-  const datosExistentes = hojaDestino.getDataRange().getValues();
-  const columnaNombre = datosExistentes[0].indexOf("nombre_archivo");
-  const nombresYaCargados = new Set(datosExistentes.slice(1).map(fila => fila[columnaNombre]));
-
-  const filasNuevas = agruparPorBloquesDe14_(valoresColumnaA, nombresYaCargados);
-
-  if (filasNuevas.length > 0) {
-    hojaDestino.getRange(hojaDestino.getLastRow() + 1, 1, filasNuevas.length, filasNuevas[0].length)
-      .setValues(filasNuevas);
-  }
-
-  hojaHome.getRange(1, 1, ultimaFila, 1).clearContent();
-
-  const mensaje = filasNuevas.length > 0
-    ? `✅ ${filasNuevas.length} documento(s) agregado(s) — ${new Date().toLocaleString()}`
-    : `⚠️ No se detectaron filas nuevas válidas. — ${new Date().toLocaleString()}`;
-
-  hojaHome.getRange("B1").setValue(mensaje);
-  Logger.log(mensaje);
-}
-
-function agruparPorBloquesDe14_(lineas, nombresYaCargados) {
-  lineas = lineas.filter(l => l !== "");
-  if (lineas[0] === "nombre_archivo") {
-    lineas = lineas.slice(NUM_COLUMNAS_BUZON);
-  }
-
-  const filas = [];
-  for (let i = 0; i + NUM_COLUMNAS_BUZON <= lineas.length; i += NUM_COLUMNAS_BUZON) {
-    const bloque = lineas.slice(i, i + NUM_COLUMNAS_BUZON);
-    const nombreArchivo = bloque[0];
-    if (nombreArchivo && !nombresYaCargados.has(nombreArchivo)) {
-      filas.push(bloque);
-      nombresYaCargados.add(nombreArchivo);
-    }
-  }
-  return filas;
-}
-
-// ============================================================
 // UTILIDADES
 // ============================================================
 function quitarTildes_(texto) {
   return String(texto).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+// Separa el término buscado en palabras sueltas (sin tildes, sin palabras de 1 letra)
+function tokenizar_(termino) {
+  return quitarTildes_(termino).split(/\s+/).filter(p => p.length > 1);
+}
+
+// Verdadero solo si TODAS las palabras buscadas aparecen en algún lugar del texto (sin importar el orden)
+function contieneTodasLasPalabras_(textoNormalizado, palabras) {
+  return palabras.every(p => textoNormalizado.indexOf(p) !== -1);
 }
 
 function escapeHtml_(s) {
