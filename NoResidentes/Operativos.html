@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= incluir('Estilos') ?>
+</head>
+<body>
+
+<!-- ============ INTERFAZ 1: LOGIN ============ -->
+<div id="pantallaLogin">
+  <div class="barra">
+    <div class="logo"><span class="casita">🏠</span> DAVIVIENDA</div>
+    <div class="acciones">
+      <button type="button">Acceso a Sheets PQRS</button>
+      <button type="button">Salir</button>
+    </div>
+  </div>
+  <div class="carga">
+    <h1>Automatización CDT - No residentes</h1>
+    <div class="rueda"></div>
+    <p>Por favor espera...</p>
+    <p class="sutil">Estamos identificando tu correo electrónico...</p>
+  </div>
+</div>
+
+<!-- ============ APLICACIÓN ============ -->
+<div id="pantallaApp" class="oculto">
+  <div class="barra">
+    <div class="logo"><span class="casita">🏠</span> DAVIVIENDA</div>
+    <div class="acciones">
+      <button type="button">Acceso a Sheets PQRS</button>
+      <button type="button">Salir</button>
+    </div>
+  </div>
+
+  <div class="contenido" id="panel">
+
+    <!-- Interfaz 2: Accesos -->
+    <div class="hero">
+      <div>
+        <h1>¡Hola <?= nombre ?>!<br>Gestiona <em>CDT y retenciones</em> en minutos</h1>
+        <p>Simplifica el proceso de CDT no residentes. Desde la ingesta hasta la autorización: todo en una plataforma inteligente, rápida y segura.</p>
+        <p class="aviso">Las autorizaciones y notificaciones se envían desde <?= buzon ?></p>
+      </div>
+      <div class="ilustracion">🏠</div>
+    </div>
+
+    <!-- Panel de revisión -->
+    <div class="panel-titulo">
+      <span>Panel de revisión y autorización</span>
+      <span id="fechaHoy"></span>
+    </div>
+
+    <div class="metricas">
+      <div class="metrica"><small>Casos pendientes</small><b id="mPendientes">0</b></div>
+      <div class="metrica"><small>Procesados hoy</small><b id="mProcesados">0</b></div>
+      <div class="metrica"><small>Aprobados</small><b id="mAprobados">0</b></div>
+    </div>
+
+    <h2 class="titulo">Casos para revisar</h2>
+    <div class="tabla-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" onclick="marcarTodos(this)"></th>
+            <th>ID caso</th>
+            <th>No. CDT</th>
+            <th>Cliente</th>
+            <th>Rendimientos</th>
+            <th>Tarifa % (ajustable)</th>
+            <th>Valor retenido sistema</th>
+            <th>Valor a retener</th>
+            <th>Diferencia a ajustar</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="filas"></tbody>
+      </table>
+    </div>
+
+    <div class="campo" style="margin-top:14px">
+      <label>Observaciones para la oficina</label>
+      <textarea id="observaciones" rows="2" placeholder="Redactar observaciones"></textarea>
+    </div>
+
+    <div class="acciones-tabla">
+      <button class="boton" onclick="verDetalle()">Ver detalle del caso</button>
+      <button class="boton rojo" onclick="aprobar()">Enviar aprobaciones a oficinas</button>
+    </div>
+
+    <!-- Detalle del caso -->
+    <div id="detalle" class="oculto">
+      <h2 class="titulo">Información del cliente</h2>
+      <div class="bloque">
+        <div>
+          <div class="campo"><label>Número del CDT</label><input id="dCdt"></div>
+          <div class="campo"><label>Documento del cliente</label><input id="dDocumento"></div>
+          <div class="campo"><label>Nombres y apellidos del cliente</label><input id="dCliente"></div>
+          <div class="campo"><label>Fecha de vencimiento</label><input id="dVencimiento" type="date"></div>
+          <div class="campo"><label>Fecha próximo vencimiento</label><input id="dProximo" type="date"></div>
+        </div>
+        <div class="perfil">
+          <div>
+            <h3>Resumen del perfil</h3>
+            <div class="fila"><span>Oficina origen:</span> <b id="dOficina">—</b></div>
+            <div class="fila"><span>Fecha de ingesta:</span> <b id="dFecha">—</b></div>
+            <div class="fila"><span>Medio de pago:</span> <b id="dMedio">—</b></div>
+            <div class="fila"><span>Inversión:</span> <b id="dInversion">$ 0</b></div>
+            <div class="fila"><span>Estado:</span> <b id="dEstado">—</b></div>
+          </div>
+          <div class="avatar">👤</div>
+        </div>
+      </div>
+      <button class="boton" onclick="alert('Información del cliente confirmada.')">Confirmar información del cliente</button>
+
+      <h2 class="titulo">Información del producto</h2>
+      <div class="bloque">
+        <div>
+          <div class="campo"><label>Valor de la inversión</label><input id="pInversion" type="number"></div>
+          <div class="campo"><label>Valor de rendimientos generados a la fecha</label><input id="pRendimientos" type="number"></div>
+          <div class="campo"><label>Ingrese valor de la retefuente</label><input id="pRetefuente" type="number"></div>
+        </div>
+        <div class="perfil">
+          <div>
+            <h3>Resumen del perfil</h3>
+            <div class="fila"><span>Tarifa aplicada:</span> <b id="pTarifa">0%</b></div>
+            <div class="fila"><span>Valor retenido sistema:</span> <b id="pSistema">$ 0</b></div>
+            <div class="fila"><span>Valor a retener:</span> <b id="pRetener">$ 0</b></div>
+            <div class="fila"><span>Diferencia a ajustar:</span> <b id="pDiferencia">$ 0</b></div>
+          </div>
+          <div class="avatar">👤</div>
+        </div>
+      </div>
+      <button class="boton" onclick="alert('Información agregada al caso.')">Agregar información</button>
+    </div>
+  </div>
+
+  <!-- Cierre -->
+  <div class="contenido cierre oculto" id="cierre">
+    <p>Hemos enviado la comunicación a quien radicó el caso.</p>
+    <p>Con el correo <?= buzon ?></p>
+    <div class="ilustracion">🏠</div>
+    <p>Califica nuestro servicio</p>
+    <div class="estrellas" id="estrellas"></div>
+    <button class="boton" style="max-width:260px;margin:20px auto" onclick="location.reload()">Volver al panel</button>
+  </div>
+</div>
+
+<script>
+  var casos = [];
+
+  setTimeout(function () {
+    document.getElementById('pantallaLogin').classList.add('oculto');
+    document.getElementById('pantallaApp').classList.remove('oculto');
+    cargarPanel();
+  }, 1800);
+
+  document.getElementById('fechaHoy').textContent = new Date().toLocaleDateString('es-CO');
+
+  function pesos(n) { return '$ ' + (Number(n) || 0).toLocaleString('es-CO'); }
+
+  function cargarPanel() {
+    google.script.run.withSuccessHandler(pintar).obtenerPanel();
+  }
+
+  function pintar(datos) {
+    casos = datos.casos;
+    document.getElementById('mPendientes').textContent = datos.pendientes;
+    document.getElementById('mProcesados').textContent = datos.procesadosHoy;
+    document.getElementById('mAprobados').textContent = datos.aprobados;
+
+    var html = '';
+    casos.forEach(function (c) {
+      html += '<tr>' +
+        '<td><input type="checkbox" class="marca" value="' + c.id + '"></td>' +
+        '<td>' + c.id + '</td>' +
+        '<td>' + c.numeroCdt + '</td>' +
+        '<td>' + c.cliente + '</td>' +
+        '<td>' + pesos(c.rendimientos) + '</td>' +
+        '<td><input type="number" min="0" max="100" value="' + c.tarifa + '" onchange="cambiarTarifa(\'' + c.id + '\', this.value)"></td>' +
+        '<td>' + pesos(c.valorSistema) + '</td>' +
+        '<td>' + pesos(c.valorRetener) + '</td>' +
+        '<td>' + pesos(c.diferencia) + '</td>' +
+        '<td class="estado ' + c.estado + '">' + c.estado + '</td>' +
+        '</tr>';
+    });
+    document.getElementById('filas').innerHTML = html;
+  }
+
+  function cambiarTarifa(id, tarifa) {
+    if (tarifa < 0 || tarifa > 100) { alert('La tarifa debe estar entre 0 y 100%.'); cargarPanel(); return; }
+    google.script.run.withSuccessHandler(pintar).actualizarTarifa(id, tarifa);
+  }
+
+  function marcarTodos(caja) {
+    var marcas = document.querySelectorAll('.marca');
+    for (var i = 0; i < marcas.length; i++) marcas[i].checked = caja.checked;
+  }
+
+  function seleccionados() {
+    var ids = [];
+    var marcas = document.querySelectorAll('.marca:checked');
+    for (var i = 0; i < marcas.length; i++) ids.push(marcas[i].value);
+    return ids;
+  }
+
+  function verDetalle() {
+    var ids = seleccionados();
+    if (ids.length !== 1) { alert('Selecciona un solo caso para ver su detalle.'); return; }
+    var c = casos.filter(function (x) { return x.id === ids[0]; })[0];
+
+    document.getElementById('dCdt').value = c.numeroCdt;
+    document.getElementById('dDocumento').value = c.documento;
+    document.getElementById('dCliente').value = c.cliente;
+    document.getElementById('dVencimiento').value = c.fechaVencimiento;
+    document.getElementById('dProximo').value = c.fechaProximo;
+    document.getElementById('dOficina').textContent = c.oficina;
+    document.getElementById('dFecha').textContent = c.fecha;
+    document.getElementById('dMedio').textContent = c.medioPago;
+    document.getElementById('dInversion').textContent = pesos(c.inversion);
+    document.getElementById('dEstado').textContent = c.estado;
+
+    document.getElementById('pInversion').value = c.inversion;
+    document.getElementById('pRendimientos').value = c.rendimientos;
+    document.getElementById('pRetefuente').value = c.valorRetener;
+    document.getElementById('pTarifa').textContent = c.tarifa + '%';
+    document.getElementById('pSistema').textContent = pesos(c.valorSistema);
+    document.getElementById('pRetener').textContent = pesos(c.valorRetener);
+    document.getElementById('pDiferencia').textContent = pesos(c.diferencia);
+
+    document.getElementById('detalle').classList.remove('oculto');
+    document.getElementById('detalle').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function aprobar() {
+    var ids = seleccionados();
+    if (!ids.length) { alert('Selecciona al menos un caso para aprobar.'); return; }
+    google.script.run
+      .withSuccessHandler(function () {
+        document.getElementById('panel').classList.add('oculto');
+        document.getElementById('cierre').classList.remove('oculto');
+      })
+      .aprobarCasos(ids, document.getElementById('observaciones').value);
+  }
+
+  // Estrellas
+  var contenedor = document.getElementById('estrellas');
+  for (var i = 1; i <= 5; i++) {
+    var estrella = document.createElement('span');
+    estrella.textContent = '★';
+    estrella.dataset.valor = i;
+    estrella.onclick = function () { alert('Gracias por calificar con ' + this.dataset.valor + ' estrellas.'); };
+    contenedor.appendChild(estrella);
+  }
+</script>
+</body>
+</html>

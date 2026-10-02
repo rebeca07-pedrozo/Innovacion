@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= incluir('Estilos') ?>
+</head>
+<body>
+
+<!-- ============ INTERFAZ 1: LOGIN ============ -->
+<div id="pantallaLogin">
+  <div class="barra">
+    <div class="logo"><span class="casita">🏠</span> DAVIVIENDA</div>
+    <div class="acciones">
+      <button type="button">Acceso a Sheets PQRS</button>
+      <button type="button">Salir</button>
+    </div>
+  </div>
+  <div class="carga">
+    <h1>Automatización CDT - No residentes</h1>
+    <div class="rueda"></div>
+    <p>Por favor espera...</p>
+    <p class="sutil">Estamos identificando tu correo electrónico...</p>
+  </div>
+</div>
+
+<!-- ============ APLICACIÓN ============ -->
+<div id="pantallaApp" class="oculto">
+  <div class="barra">
+    <div class="logo"><span class="casita">🏠</span> DAVIVIENDA</div>
+    <div class="acciones">
+      <button type="button">Acceso a Sheets PQRS</button>
+      <button type="button">Salir</button>
+    </div>
+  </div>
+
+  <div class="contenido" id="formulario">
+
+    <!-- Interfaz 2: Accesos -->
+    <div class="hero">
+      <div>
+        <h1>¡Hola <?= nombre ?>!<br>Gestiona <em>CDT y retenciones</em> en minutos</h1>
+        <p>Simplifica el proceso de CDT no residentes. Desde la ingesta hasta la autorización: todo en una plataforma inteligente, rápida y segura.</p>
+      </div>
+      <div class="ilustracion">🏠</div>
+    </div>
+
+    <!-- Información de oficina -->
+    <h2 class="titulo">Información de oficina</h2>
+    <div class="bloque">
+      <div>
+        <div class="campo">
+          <label>Correo (no editable)</label>
+          <input id="correo" value="<?= correo ?>" readonly>
+        </div>
+        <div class="campo">
+          <label>Nombre (no editable)</label>
+          <input id="nombre" value="<?= nombre ?>" readonly>
+        </div>
+        <div class="campo">
+          <label>Apellidos (no editable)</label>
+          <input id="apellidos" value="—" readonly>
+        </div>
+        <div class="campo">
+          <label>Selecciona tu oficina <b>*</b></label>
+          <select id="oficina">
+            <option value="">Selecciona...</option>
+            <? for (var i = 0; i < oficinas.length; i++) { ?>
+              <option><?= oficinas[i] ?></option>
+            <? } ?>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;font-size:90px">👩🏽‍💼</div>
+    </div>
+
+    <!-- Información del cliente -->
+    <h2 class="titulo">Información del cliente</h2>
+    <div class="bloque">
+      <div>
+        <div class="campo"><label>Número del CDT <b>*</b></label><input id="numeroCdt"></div>
+        <div class="campo"><label>Documento del cliente <b>*</b></label><input id="documento"></div>
+        <div class="campo"><label>Nombres y apellidos del cliente <b>*</b></label><input id="cliente"></div>
+        <div class="campo"><label>Fecha de vencimiento <b>*</b></label><input id="fechaVencimiento" type="date"></div>
+        <div class="campo"><label>Fecha próximo vencimiento</label><input id="fechaProximo" type="date"></div>
+      </div>
+      <div class="perfil">
+        <div>
+          <h3>Resumen del perfil</h3>
+          <div class="fila"><span>Número del CDT:</span> <b id="rCdt">—</b></div>
+          <div class="fila"><span>Documento:</span> <b id="rDocumento">—</b></div>
+          <div class="fila"><span>Cliente:</span> <b id="rCliente">—</b></div>
+          <div class="fila"><span>Vencimiento:</span> <b id="rVencimiento">—</b></div>
+          <div class="fila"><span>Próximo vencimiento:</span> <b id="rProximo">—</b></div>
+        </div>
+        <div class="avatar">👤</div>
+      </div>
+    </div>
+    <button class="boton" onclick="confirmarCliente()">Confirmar información del cliente</button>
+
+    <!-- Información del producto -->
+    <div id="bloqueProducto" class="oculto">
+      <h2 class="titulo">Información del producto</h2>
+      <div class="bloque">
+        <div>
+          <div class="campo">
+            <label>Medio de pago de la retención <b>*</b></label>
+            <select id="medioPago">
+              <? for (var i = 0; i < mediosPago.length; i++) { ?>
+                <option><?= mediosPago[i] ?></option>
+              <? } ?>
+            </select>
+          </div>
+          <div class="campo"><label>Valor de la inversión <b>*</b></label><input id="inversion" type="number" oninput="calcular()"></div>
+          <div class="campo"><label>Valor de rendimientos generados a la fecha <b>*</b></label><input id="rendimientos" type="number" oninput="calcular()"></div>
+          <div class="campo"><label>Ingrese valor de la retefuente <b>*</b></label><input id="retefuente" type="number" oninput="calcular()"></div>
+          <div class="campo"><label>Cálculo retefuente: tarifa 4%</label><input id="calculo" readonly value="$ 0"></div>
+        </div>
+        <div class="perfil">
+          <div>
+            <h3>Resumen del perfil</h3>
+            <div class="fila"><span>Medio de pago:</span> <b id="rMedio">—</b></div>
+            <div class="fila"><span>Inversión:</span> <b id="rInversion">$ 0</b></div>
+            <div class="fila"><span>Rendimientos:</span> <b id="rRendimientos">$ 0</b></div>
+            <div class="fila"><span>Retefuente digitada:</span> <b id="rRetefuente">$ 0</b></div>
+            <div class="fila"><span>Diferencia a ajustar:</span> <b id="rDiferencia">$ 0</b></div>
+          </div>
+          <div class="avatar">👤</div>
+        </div>
+      </div>
+
+      <div class="bloque">
+        <button class="boton amarillo" onclick="alert('Verifica tarifa, residencia fiscal del cliente y soporte del medio de pago antes de enviar.')">Observaciones a tener presentes</button>
+        <div class="campo"><textarea id="observaciones" rows="3" placeholder="Redacta observaciones"></textarea></div>
+      </div>
+
+      <button class="boton rojo" onclick="enviarCaso()">Enviar a autorización</button>
+    </div>
+  </div>
+
+  <!-- Cierre -->
+  <div class="contenido cierre oculto" id="cierre">
+    <p>Hemos enviado tu información al área operativa para su verificación y pronta aprobación.</p>
+    <p><b id="idCaso"></b></p>
+    <div class="ilustracion">🏠</div>
+    <p>Califica nuestro servicio</p>
+    <div class="estrellas" id="estrellas"></div>
+    <button class="boton" style="max-width:260px;margin:20px auto" onclick="location.reload()">Registrar otro caso</button>
+  </div>
+</div>
+
+<script>
+  // Simula la identificación del correo
+  setTimeout(function () {
+    document.getElementById('pantallaLogin').classList.add('oculto');
+    document.getElementById('pantallaApp').classList.remove('oculto');
+  }, 1800);
+
+  function valor(id) { return document.getElementById(id).value; }
+  function pesos(n) { return '$ ' + (Number(n) || 0).toLocaleString('es-CO'); }
+
+  function confirmarCliente() {
+    var obligatorios = ['numeroCdt', 'documento', 'cliente', 'fechaVencimiento', 'oficina'];
+    var faltan = false;
+    obligatorios.forEach(function (id) {
+      var campo = document.getElementById(id);
+      if (!campo.value) { campo.classList.add('invalido'); campo.classList.remove('valido'); faltan = true; }
+      else { campo.classList.add('valido'); campo.classList.remove('invalido'); }
+    });
+    if (faltan) { alert('Completa los campos obligatorios marcados en rojo.'); return; }
+
+    document.getElementById('rCdt').textContent = valor('numeroCdt');
+    document.getElementById('rDocumento').textContent = valor('documento');
+    document.getElementById('rCliente').textContent = valor('cliente');
+    document.getElementById('rVencimiento').textContent = valor('fechaVencimiento');
+    document.getElementById('rProximo').textContent = valor('fechaProximo') || '—';
+    document.getElementById('bloqueProducto').classList.remove('oculto');
+    document.getElementById('bloqueProducto').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function calcular() {
+    var rendimientos = Number(valor('rendimientos')) || 0;
+    var retefuente = Number(valor('retefuente')) || 0;
+    var sistema = Math.round(rendimientos * 0.04);
+    document.getElementById('calculo').value = pesos(sistema);
+    document.getElementById('rMedio').textContent = valor('medioPago');
+    document.getElementById('rInversion').textContent = pesos(valor('inversion'));
+    document.getElementById('rRendimientos').textContent = pesos(rendimientos);
+    document.getElementById('rRetefuente').textContent = pesos(retefuente);
+    document.getElementById('rDiferencia').textContent = pesos(sistema - retefuente);
+  }
+
+  function enviarCaso() {
+    var datos = {
+      correoOficina: valor('correo'),
+      oficina: valor('oficina'),
+      numeroCdt: valor('numeroCdt'),
+      documento: valor('documento'),
+      cliente: valor('cliente'),
+      fechaVencimiento: valor('fechaVencimiento'),
+      fechaProximo: valor('fechaProximo'),
+      medioPago: valor('medioPago'),
+      inversion: valor('inversion'),
+      rendimientos: valor('rendimientos'),
+      retefuente: valor('retefuente'),
+      observaciones: valor('observaciones')
+    };
+    google.script.run
+      .withSuccessHandler(mostrarCierre)
+      .withFailureHandler(function (e) { alert('No se pudo enviar: ' + e.message); })
+      .guardarCaso(datos);
+  }
+
+  function mostrarCierre(caso) {
+    document.getElementById('formulario').classList.add('oculto');
+    document.getElementById('cierre').classList.remove('oculto');
+    document.getElementById('idCaso').textContent = 'Caso radicado: ' + caso.id;
+  }
+
+  // Estrellas
+  var contenedor = document.getElementById('estrellas');
+  for (var i = 1; i <= 5; i++) {
+    var estrella = document.createElement('span');
+    estrella.textContent = '★';
+    estrella.dataset.valor = i;
+    estrella.onclick = function () { alert('Gracias por calificar con ' + this.dataset.valor + ' estrellas.'); };
+    contenedor.appendChild(estrella);
+  }
+</script>
+</body>
+</html>
