@@ -3,8 +3,9 @@
 # Copia nid, dv, raz, dir, dpto, mun, pais del XML de la DIAN
 # sobre los XML de la carpeta de la jefa
 # ===========================================================
-ID_CARPETA_DIAN = "PEGA_AQUI_EL_ID"   # XML descargados de la DIAN (fuente correcta)
-ID_CARPETA_JEFA = "PEGA_AQUI_EL_ID"   # XML a corregir
+ID_CARPETA_DIAN   = "PEGA_AQUI_EL_ID"   # XML descargados de la DIAN (fuente correcta)
+ID_CARPETA_JEFA   = "PEGA_AQUI_EL_ID"   # XML a corregir
+ID_CARPETA_SALIDA = "PEGA_AQUI_EL_ID"   # carpeta NUEVA y VACIA de Drive; dejala en "" para bajar un zip
 CAMPOS_A_CORREGIR = ["nid", "dv", "raz", "dir", "dpto", "mun", "pais"]
 SALIDA_LOG = "correccion_1020.xlsx"
 
@@ -13,7 +14,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 from google.colab import auth, files
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 auth.authenticate_user()
 drive = build("drive", "v3")
@@ -124,7 +125,7 @@ for archivo in listar_xml(ID_CARPETA_JEFA):
     with open(salida, "wb") as f:
         f.write(ET.tostring(raiz, encoding=codificacion, xml_declaration=True))
 
-# ---------- 3) resumen y descarga ----------
+# ---------- 3) resumen ----------
 resumen = [
     {"concepto": "Registros en los XML de la DIAN", "valor": total_dian},
     {"concepto": "Registros procesados de la jefa", "valor": len(log) + len(sin_cruce)},
@@ -151,7 +152,21 @@ with pd.ExcelWriter(SALIDA_LOG, engine="openpyxl") as libro:
             largo = max(len(str(celda.value or "")) for celda in columna)
             hoja.column_dimensions[columna[0].column_letter].width = min(max(largo + 2, 12), 70)
 
-shutil.make_archive("xml_corregidos", "zip", CARPETA_SALIDA)
+# ---------- 4) entrega de los XML corregidos ----------
+archivos_salida = sorted(os.listdir(CARPETA_SALIDA))
 print(pd.DataFrame(resumen).to_string(index=False))
-files.download(SALIDA_LOG)
-files.download("xml_corregidos.zip")
+
+if ID_CARPETA_SALIDA and not ID_CARPETA_SALIDA.startswith("PEGA"):
+    for nombre in archivos_salida:
+        drive.files().create(
+            body={"name": nombre, "parents": [ID_CARPETA_SALIDA]},
+            media_body=MediaFileUpload(os.path.join(CARPETA_SALIDA, nombre),
+                                       mimetype="application/xml"),
+            supportsAllDrives=True).execute()
+    print(f"\n{len(archivos_salida)} XML corregidos subidos a la carpeta de Drive")
+    files.download(SALIDA_LOG)
+else:
+    shutil.make_archive("xml_corregidos", "zip", CARPETA_SALIDA)
+    print(f"\n{len(archivos_salida)} XML corregidos en xml_corregidos.zip")
+    files.download(SALIDA_LOG)
+    files.download("xml_corregidos.zip")
