@@ -21,22 +21,30 @@ CAMPOS = ["be_fecha","be_banco","Titular_1","Tipo ID","Numero de ID","Tipo Perso
           "Valor retencion en la fuente","be_saldo_final","be_valor_int_cau",
           "Secuencia producto","Numero producto"]
 Bloque 3 — Listar los TXT de la carpeta
-python
 def listar_archivos():
     archivos, token = [], None
     while True:
         r = drive.files().list(
             q=f"'{CARPETA}' in parents and trashed = false",
             fields="nextPageToken, files(id, name)",
-            pageSize=1000, pageToken=token).execute()
+            pageSize=1000,
+            pageToken=token,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            corpora="allDrives").execute()
         archivos += r.get('files', [])
         token = r.get('nextPageToken')
         if not token:
             break
-    return [a for a in archivos if a['name'].startswith(PREFIJO)]
+    return archivos
 
-archivos = listar_archivos()
-print(f"Archivos encontrados: {len(archivos)}")
+todos = listar_archivos()
+archivos = [a for a in todos if a['name'].startswith(PREFIJO)]
+
+print(f"Total en la carpeta: {len(todos)}")
+print(f"Con el prefijo '{PREFIJO}': {len(archivos)}")
+for a in todos[:10]:
+    print("  ", repr(a['name']))
 
 DIAGNOSTICO
 # DIAGNÓSTICO
@@ -69,16 +77,16 @@ for n, l in enumerate(lineas, 1):
         break
 
 Bloque 4 — Descargar y buscar en un archivo
-python
 def buscar(archivo):
     buffer = io.BytesIO()
-    bajada = MediaIoBaseDownload(buffer, drive.files().get_media(fileId=archivo['id']))
+    peticion = drive.files().get_media(fileId=archivo['id'], supportsAllDrives=True)
+    bajada = MediaIoBaseDownload(buffer, peticion)
     listo = False
     while not listo:
         _, listo = bajada.next_chunk()
 
     datos = buffer.getvalue()
-    if ID_BUSCADO.encode() not in datos:   # filtro rápido: si no está, ni recorre
+    if ID_BUSCADO.encode() not in datos:   # filtro rápido
         return []
 
     try:
