@@ -115,12 +115,16 @@ def buscar(archivo):
     return filas
 Bloque 5 — Ejecutar la búsqueda (en paralelo)
 resultados = []
-with ThreadPoolExecutor(max_workers=4) as pool:
-    for filas in pool.map(buscar, archivos):
-        resultados += filas
+for i, archivo in enumerate(archivos, start=1):
+    try:
+        resultados += buscar(archivo)
+    except Exception as e:
+        print(f"  ERROR en {archivo['name']}: {e}")
+    if i % 10 == 0 or i == len(archivos):
+        print(f"{i}/{len(archivos)} archivos revisados — {len(resultados)} coincidencias")
 
 tabla = pd.DataFrame(resultados, columns=["Archivo", "Linea"] + CAMPOS)
-print(f"Coincidencias: {len(tabla)}  |  Archivos con el ID: {tabla['Archivo'].nunique() if len(tabla) else 0}")
+print(f"\nCoincidencias: {len(tabla)}  |  Archivos con el ID: {tabla['Archivo'].nunique() if len(tabla) else 0}")
 tabla.head(20)
 Bloque 6 — Exportar el reporte
 python
