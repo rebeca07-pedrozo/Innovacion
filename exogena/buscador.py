@@ -1,10 +1,20 @@
 Bloque 1 — Autenticación e imports
-python
 from google.colab import auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from concurrent.futures import ThreadPoolExecutor
-import io, pandas as pd
+import io, threading, pandas as pd
+
+auth.authenticate_user()
+drive = build('drive', 'v3', cache_discovery=False)
+
+# un servicio independiente por hilo (googleapiclient no es thread-safe)
+local = threading.local()
+
+def servicio():
+    if not hasattr(local, 'drive'):
+        local.drive = build('drive', 'v3', cache_discovery=False)
+    return local.drive
 
 auth.authenticate_user()
 drive = build('drive', 'v3')
@@ -78,14 +88,17 @@ for n, l in enumerate(lineas, 1):
 
 Bloque 4 — Descargar y buscar en un archivo
 def buscar(archivo):
+    api = servicio()
     buffer = io.BytesIO()
-    peticion = drive.files().get_media(fileId=archivo['id'], supportsAllDrives=True)
+    peticion = api.files().get_media(fileId=archivo['id'], supportsAllDrives=True)
     bajada = MediaIoBaseDownload(buffer, peticion)
     listo = False
     while not listo:
         _, listo = bajada.next_chunk()
 
     datos = buffer.getvalue()
+    buffer.close()
+
     if ID_BUSCADO.encode() not in datos:   # filtro rápido
         return []
 
@@ -101,9 +114,8 @@ def buscar(archivo):
             filas.append([archivo['name'], num] + campos[:len(CAMPOS)])
     return filas
 Bloque 5 — Ejecutar la búsqueda (en paralelo)
-python
 resultados = []
-with ThreadPoolExecutor(max_workers=8) as pool:
+with ThreadPoolExecutor(max_workers=4) as pool:
     for filas in pool.map(buscar, archivos):
         resultados += filas
 
