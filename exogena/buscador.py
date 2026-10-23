@@ -37,6 +37,37 @@ def listar_archivos():
 
 archivos = listar_archivos()
 print(f"Archivos encontrados: {len(archivos)}")
+
+DIAGNOSTICO
+# DIAGNÓSTICO
+print("Archivos con el prefijo:", len(archivos))
+print([a['name'] for a in archivos[:5]])
+
+a = archivos[0]
+buf = io.BytesIO()
+d = MediaIoBaseDownload(buf, drive.files().get_media(fileId=a['id']))
+ok = False
+while not ok:
+    _, ok = d.next_chunk()
+datos = buf.getvalue()
+try:
+    texto = datos.decode('utf-8')
+except UnicodeDecodeError:
+    texto = datos.decode('latin-1')
+
+lineas = texto.splitlines()
+print("\nArchivo:", a['name'], "| líneas:", len(lineas))
+print("Primera línea:", repr(lineas[0]))
+print("Campos con ';':", len(lineas[0].split(';')))
+
+print("\n¿El ID está en el texto?", ID_BUSCADO in texto)
+for n, l in enumerate(lineas, 1):
+    if ID_BUSCADO in l:
+        campos = l.split(';')
+        pos = [i for i, c in enumerate(campos) if c.strip() == ID_BUSCADO]
+        print(f"línea {n} -> posiciones exactas: {pos} | campo[4] = {repr(campos[4] if len(campos)>4 else None)}")
+        break
+
 Bloque 4 — Descargar y buscar en un archivo
 python
 def buscar(archivo):
