@@ -1,11 +1,10 @@
 # ===========================================================
 # COMPARADOR XML FORMATO 1020 (CDT) - DIAN vs carpeta jefa
-# Cruza por llave nid + ntit, sin importar orden ni archivo
+# Cruza por nid + ntit, sin importar orden, archivo ni nivel del XML
 # ===========================================================
 ID_CARPETA_DIAN = "PEGA_AQUI_EL_ID"   # XML que descargué de la DIAN
-ID_CARPETA_JEFA = "PEGA_AQUI_EL_ID"   # carpeta "de mas" de la jefa
+ID_CARPETA_JEFA = "PEGA_AQUI_EL_ID"   # carpeta a verificar
 SALIDA = "comparacion_1020.xlsx"
-CLAVE = ["nid", "ntit"]               # puedes agregar "ttitu","tmov" si quieres clave mas estricta
 
 import io
 import xml.etree.ElementTree as ET
@@ -61,17 +60,20 @@ def leer_carpeta(id_carpeta, origen):
             if "}" in nodo.tag:
                 nodo.tag = nodo.tag.split("}", 1)[1]
         cab = {"origen": origen, "archivo": archivo["name"]}
-        nodo_cab = raiz.find("Cab")
+        nodo_cab = next(raiz.iter("Cab"), None)        # busca el Cab en cualquier nivel
         for c in CAMPOS_CAB:
             hijo = nodo_cab.find(c) if nodo_cab is not None else None
             cab[c] = (hijo.text or "").strip() if hijo is not None else ""
         cabeceras.append(cab)
-        for i, inv in enumerate(raiz.findall("invcdt"), start=1):
+        cuantos = 0
+        for i, inv in enumerate(raiz.iter("invcdt"), start=1):   # en cualquier nivel
             registros.append({
                 "origen": origen, "archivo": archivo["name"], "fila": i,
                 "datos": {c: limpiar(c, inv.get(c)) for c in CAMPOS},
                 "sec": [{c: limpiar(c, s.get(c)) for c in CAMPOS_SEC}
-                        for s in inv.findall("titSec")]})
+                        for s in inv.iter("titSec")]})
+            cuantos = i
+        print(f'{origen:5} | {archivo["name"][:50]:50} | registros: {cuantos}')
     return registros, cabeceras
 
 def firma_sec(reg):
@@ -80,16 +82,25 @@ def firma_sec(reg):
 def firma(reg):
     return (tuple(reg["datos"][c] for c in CAMPOS), tuple(firma_sec(reg)))
 
-def agrupar(registros):
-    grupos = {}
-    for r in registros:
-        clave = tuple(r["datos"][c] for c in CLAVE)
-        grupos.setdefault(clave, []).append(r)
-    return grupos
-
 reg_dian, cab_dian = leer_carpeta(ID_CARPETA_DIAN, "DIAN")
 reg_jefa, cab_jefa = leer_carpeta(ID_CARPETA_JEFA, "JEFA")
-g_dian, g_jefa = agrupar(reg_dian), agrupar(reg_jefa)
+
+# ---------- agrupacion por llave ----------
+g_dian = {}
+for r in reg_dian:
+    g_dian.setdefault((r["datos"]["nid"], r["datos"]["ntit"]), []).append(r)
+
+g_jefa = {}
+for r in reg_jefa:
+    nid, ntit = r["datos"]["nid"], r["datos"]["ntit"]
+    if (nid, ntit) in g_dian:
+        clave, como = (nid, ntit), "llave exacta"
+    elif len(nid) > 1 and (nid[:-1], ntit) in g_dian:      # el dv quedo pegado al nid
+        clave, como = (nid[:-1], ntit), "nid sin el dv pegado"
+    else:
+        clave, como = (nid, ntit), "llave exacta"
+    r["como"] = como
+    g_jefa.setdefault(clave, []).append(r)
 
 # ---------- comparacion ----------
 diferencias, filas_cab = [], []
@@ -113,6 +124,7 @@ def anotar(clave, titular, tipo, etiqueta, val_dian, val_jefa, ra=None, rb=None)
         "llave (nid | ntit)": " | ".join(clave), "nid": clave[0], "ntit": clave[1],
         "titular": titular, "tipo_diferencia": tipo, "etiqueta": etiqueta,
         "valor_DIAN": val_dian, "valor_JEFA": val_jefa,
+        "como_cruzo": rb["como"] if rb else "",
         "archivo_DIAN": ra["archivo"] if ra else "", "fila_DIAN": ra["fila"] if ra else "",
         "archivo_JEFA": rb["archivo"] if rb else "", "fila_JEFA": rb["fila"] if rb else ""})
 
@@ -164,6 +176,13 @@ for nombre in nombres:
             filas_cab.append({"archivo": nombre, "etiqueta": c,
                               "valor_DIAN": va, "valor_JEFA": vb})
 
+# ---------- conteo por archivo ----------
+por_archivo = []
+for origen, registros in [("DIAN", reg_dian), ("JEFA", reg_jefa)]:
+    for nombre in sorted({r["archivo"] for r in registros}):
+        por_archivo.append({"origen": origen, "archivo": nombre,
+                            "registros_leidos": sum(1 for r in registros if r["archivo"] == nombre)})
+
 # ---------- resumen ----------
 conteo = Counter(f["tipo_diferencia"] for f in diferencias)
 resumen = [
@@ -176,7 +195,10 @@ resumen = [
      "valor": len({f["llave (nid | ntit)"] for f in diferencias})},
     {"concepto": "Total diferencias encontradas", "valor": len(diferencias)}]
 resumen += [{"concepto": f"  - {t}", "valor": n} for t, n in sorted(conteo.items())]
-resumen += [{"concepto": "Encabezados con diferencia", "valor": len(filas_cab)}]
+resumen += [
+    {"concepto": "Cruces con el nid sin el dv pegado",
+     "valor": sum(1 for r in reg_jefa if r["como"] == "nid sin el dv pegado")},
+    {"concepto": "Encabezados con diferencia", "valor": len(filas_cab)}]
 
 # ---------- excel ----------
 def guardar(libro, datos, hoja):
@@ -186,6 +208,7 @@ def guardar(libro, datos, hoja):
 with pd.ExcelWriter(SALIDA, engine="openpyxl") as libro:
     guardar(libro, resumen, "RESUMEN")
     guardar(libro, diferencias, "DIFERENCIAS")
+    guardar(libro, por_archivo, "CONTEO_POR_ARCHIVO")
     guardar(libro, filas_cab, "ENCABEZADOS")
     for hoja in libro.book.worksheets:                 # ancho de columna y filtro
         hoja.freeze_panes = "A2"
@@ -194,5 +217,6 @@ with pd.ExcelWriter(SALIDA, engine="openpyxl") as libro:
             largo = max(len(str(celda.value or "")) for celda in columna)
             hoja.column_dimensions[columna[0].column_letter].width = min(max(largo + 2, 12), 60)
 
+print()
 print(pd.DataFrame(resumen).to_string(index=False))
 files.download(SALIDA)
