@@ -6,7 +6,7 @@ ID_CARPETA_DIAN = "PEGA_AQUI_EL_ID"   # XML que descargué de la DIAN
 ID_CARPETA_JEFA = "PEGA_AQUI_EL_ID"   # carpeta a verificar
 SALIDA = "comparacion_1020.xlsx"
 
-import io
+import io, hashlib
 import xml.etree.ElementTree as ET
 from collections import Counter
 import pandas as pd
@@ -22,8 +22,8 @@ CAMPOS = ["tdoc","nid","dv","apl1","apl2","nom1","nom2","raz","dir","dpto","mun"
 CAMPOS_SEC = ["cpts","tdocs","nids","dvs","apl1s","apl2s","nom1s","nom2s","razs"]
 CAMPOS_CAB = ["Ano","CodCpt","Formato","Version","NumEnvio","FecEnvio","FecInicial",
               "FecFinal","ValorTotal","CantReg"]
-NUMERICOS = {"tdoc","dv","dpto","mun","pais","ntit","ttitu","tmov","salini","inv",
-             "vintca","vintpa","retfup","salfin","cpts","tdocs","dvs"}
+NUMERICOS = {"tdoc","nid","dv","dpto","mun","pais","ntit","ttitu","tmov","salini","inv",
+             "vintca","vintpa","retfup","salfin","cpts","tdocs","nids","dvs"}
 
 # ---------- lectura ----------
 def limpiar(campo, valor):
@@ -54,8 +54,21 @@ def bajar(id_archivo):
 
 def leer_carpeta(id_carpeta, origen):
     registros, cabeceras = [], []
+    por_huella, por_nombre = {}, {}                    # para detectar duplicados de Drive
     for archivo in listar_xml(id_carpeta):
-        raiz = ET.fromstring(bajar(archivo["id"]))
+        crudo = bajar(archivo["id"])
+        huella = hashlib.md5(crudo).hexdigest()
+
+        if huella in por_huella:                       # mismo contenido: se omite
+            print(f'{origen:5} | {archivo["name"][:50]:50} | DUPLICADO, se omite')
+            continue
+        if archivo["name"] in por_nombre:              # mismo nombre, contenido distinto
+            print(f'{origen:5} | {archivo["name"][:50]:50} | OJO: mismo nombre, '
+                  f'contenido DISTINTO. Revisar en Drive')
+        por_huella[huella] = archivo["name"]
+        por_nombre[archivo["name"]] = huella
+
+        raiz = ET.fromstring(crudo)
         for nodo in raiz.iter():                       # por si vienen con namespace
             if "}" in nodo.tag:
                 nodo.tag = nodo.tag.split("}", 1)[1]
@@ -103,7 +116,7 @@ for r in reg_jefa:
     g_jefa.setdefault(clave, []).append(r)
 
 # ---------- comparacion ----------
-diferencias, filas_cab = [], []
+diferencias, filas_cab, repetidas = [], [], []
 iguales = 0
 
 def nombre_titular(d):
@@ -140,7 +153,22 @@ for clave in sorted(set(g_dian) | set(g_jefa)):
         else:
             pend_dian.append(ra)
 
-    for ra, rb in zip(pend_dian, pend_jefa):           # 2) se cruzan por llave pero difieren
+    if len(lista_dian) > 1 or len(g_jefa.get(clave, [])) > 1:   # llave repetida
+        repetidas.append({"llave (nid | ntit)": " | ".join(clave),
+                          "veces_en_DIAN": len(lista_dian),
+                          "veces_en_JEFA": len(g_jefa.get(clave, []))})
+
+    disponibles = list(pend_jefa)                      # 2) empareja por la linea mas parecida
+    parejas = []
+    for ra in pend_dian:
+        if not disponibles:
+            break
+        rb = min(disponibles,
+                 key=lambda x: sum(1 for c in CAMPOS if ra["datos"][c] != x["datos"][c]))
+        disponibles.remove(rb)
+        parejas.append((ra, rb))
+
+    for ra, rb in parejas:
         titular = nombre_titular(ra["datos"])
         for c in CAMPOS:
             if ra["datos"][c] != rb["datos"][c]:
@@ -155,11 +183,11 @@ for clave in sorted(set(g_dian) | set(g_jefa)):
             anotar(clave, titular, "Etiqueta que NO esta en el archivo de la JEFA", "titSec",
                    nombre_sec(dict(zip(CAMPOS_SEC, s))), "(no existe)", ra, rb)
 
-    for ra in pend_dian[len(pend_jefa):]:              # 3) registros que no existen al otro lado
+    for ra in pend_dian[len(parejas):]:                # 3) no existen al otro lado
         anotar(clave, nombre_titular(ra["datos"]),
                "Registro que NO esta en el archivo de la JEFA", "invcdt",
                foto_linea(ra), "(no existe)", ra, None)
-    for rb in pend_jefa[len(pend_dian):]:
+    for rb in disponibles:
         anotar(clave, nombre_titular(rb["datos"]),
                "Registro que NO esta en el archivo de la DIAN", "invcdt",
                "(no existe)", foto_linea(rb), None, rb)
@@ -186,8 +214,8 @@ for origen, registros in [("DIAN", reg_dian), ("JEFA", reg_jefa)]:
 # ---------- resumen ----------
 conteo = Counter(f["tipo_diferencia"] for f in diferencias)
 resumen = [
-    {"concepto": "Archivos en carpeta DIAN", "valor": len({c['archivo'] for c in cab_dian})},
-    {"concepto": "Archivos en carpeta JEFA", "valor": len({c['archivo'] for c in cab_jefa})},
+    {"concepto": "Archivos en carpeta DIAN", "valor": len(cab_dian)},
+    {"concepto": "Archivos en carpeta JEFA", "valor": len(cab_jefa)},
     {"concepto": "Registros invcdt en DIAN", "valor": len(reg_dian)},
     {"concepto": "Registros invcdt en JEFA", "valor": len(reg_jefa)},
     {"concepto": "Lineas identicas", "valor": iguales},
@@ -198,6 +226,7 @@ resumen += [{"concepto": f"  - {t}", "valor": n} for t, n in sorted(conteo.items
 resumen += [
     {"concepto": "Cruces con el nid sin el dv pegado",
      "valor": sum(1 for r in reg_jefa if r["como"] == "nid sin el dv pegado")},
+    {"concepto": "Llaves repetidas dentro de una carpeta", "valor": len(repetidas)},
     {"concepto": "Encabezados con diferencia", "valor": len(filas_cab)}]
 
 # ---------- excel ----------
@@ -209,6 +238,7 @@ with pd.ExcelWriter(SALIDA, engine="openpyxl") as libro:
     guardar(libro, resumen, "RESUMEN")
     guardar(libro, diferencias, "DIFERENCIAS")
     guardar(libro, por_archivo, "CONTEO_POR_ARCHIVO")
+    guardar(libro, repetidas, "LLAVES_REPETIDAS")
     guardar(libro, filas_cab, "ENCABEZADOS")
     for hoja in libro.book.worksheets:                 # ancho de columna y filtro
         hoja.freeze_panes = "A2"
