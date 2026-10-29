@@ -1,6 +1,7 @@
 # ===========================================================
 # COMPARADOR XML FORMATO 1009 - DIAN vs carpeta de reproceso
-# Cruza por cpt + nid, en las dos direcciones.
+# Cruza por cpt + nid en las dos direcciones. Las carpetas pueden tener
+# distinta cantidad de archivos y registros: eso es esperado en un reproceso.
 # Reporte de una sola hoja: DIFERENCIAS. El resumen va en pantalla.
 # ===========================================================
 ID_CARPETA_DIAN      = "PEGA_AQUI_EL_ID"   # XML descargados de la DIAN
@@ -23,6 +24,35 @@ CAMPOS = ["cpt","tdoc","nid","dv","apl1","apl2","nom1","nom2","raz",
           "dir","dpto","mun","pais","sal"]
 NUMERICOS = {"cpt","tdoc","nid","dv","dpto","mun","pais","sal"}
 MARCAS = ("Ã", "Â", "â€")              # señales de texto partido
+CONCEPTOS = {"01": "Insercion", "02": "Reemplazo"}
+
+# ---------- nombre del archivo ----------
+def partes_nombre(nombre):
+    """Dmuisca_ cc mmmmm vv aaaa cccccccc .xml"""
+    m = re.match(r'Dmuisca_(\d{2})(\d{5})(\d{2})(\d{4})(\d{8})\.xml$', nombre, re.IGNORECASE)
+    if not m:
+        return None
+    cc, fmt, ver, ano, cons = m.groups()
+    return {"concepto": cc, "formato": fmt, "version": ver, "ano": ano, "consecutivo": cons}
+
+def describir_carpeta(archivos, origen):
+    partes = {n: partes_nombre(n) for n in archivos}
+    buenos = [p for p in partes.values() if p]
+    print(f'\n{origen}: {len(archivos)} archivos')
+    if buenos:
+        conceptos = sorted({f'{p["concepto"]}={CONCEPTOS.get(p["concepto"], "?")}' for p in buenos})
+        print(f'   concepto    : {", ".join(conceptos)}')
+        print(f'   formato     : {", ".join(sorted({p["formato"] for p in buenos}))}')
+        print(f'   version     : {", ".join(sorted({p["version"] for p in buenos}))}')
+        print(f'   año de envio: {", ".join(sorted({p["ano"] for p in buenos}))}')
+        print(f'   consecutivos: {min(p["consecutivo"] for p in buenos)} a '
+              f'{max(p["consecutivo"] for p in buenos)}')
+        malos = {p["formato"] for p in buenos} - {"01009"}
+        if malos:
+            print(f'   OJO: hay archivos que no son formato 01009 -> {malos}')
+    for n, p in partes.items():
+        if p is None:
+            print(f'   OJO: nombre fuera del estandar -> {n}')
 
 # ---------- lectura robusta ----------
 def leer_xml(crudo):
@@ -70,6 +100,12 @@ def limpiar(campo, valor):
     if campo in NUMERICOS and v.isdigit():
         return str(int(v))          # quita ceros a la izquierda
     return " ".join(v.upper().split())
+
+def numero(valor):
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return 0.0
 
 def listar_xml(id_carpeta):
     lista, token = [], None
@@ -144,6 +180,9 @@ def leer_carpeta(id_carpeta, origen):
 reg_dian, arch_dian = leer_carpeta(ID_CARPETA_DIAN, "DIAN")
 reg_rep,  arch_rep  = leer_carpeta(ID_CARPETA_REPROCESO, NOMBRE_B)
 
+describir_carpeta(arch_dian, "DIAN")
+describir_carpeta(arch_rep, NOMBRE_B)
+
 def firma(reg):
     return tuple(reg["datos"][c] for c in CAMPOS)
 
@@ -167,6 +206,7 @@ for r in reg_rep:
 # ---------- comparacion en las dos direcciones ----------
 diferencias = []
 iguales = 0
+sal_eliminados, sal_nuevos = 0.0, 0.0
 
 def nombre_deudor(d):
     return (d["raz"] or f'{d["nom1"]} {d["apl1"]}').strip()
@@ -181,6 +221,8 @@ def anotar(clave, deudor, tipo, etiqueta, val_dian, val_rep, ra=None, rb=None):
         "llave (cpt | nid)": " | ".join(clave), "cpt": clave[0], "nid": clave[1],
         "deudor": deudor, "tipo_diferencia": tipo, "etiqueta": etiqueta,
         "valor_DIAN": val_dian, f"valor_{NOMBRE_B}": val_rep,
+        "sal_DIAN": ra["datos"]["sal"] if ra else "",
+        f"sal_{NOMBRE_B}": rb["datos"]["sal"] if rb else "",
         "como_cruzo": rb["como"] if rb else "",
         "archivo_DIAN": ra["archivo"] if ra else "", "fila_DIAN": ra["fila"] if ra else "",
         f"archivo_{NOMBRE_B}": rb["archivo"] if rb else "",
@@ -217,14 +259,16 @@ for clave in sorted(set(g_dian) | set(g_rep)):
                         if solo_caracter_perdido(x, y) else "Valor diferente")
                 anotar(clave, deudor, tipo, c, x or "(vacio)", y or "(vacio)", ra, rb)
 
-    for ra in pend_dian[len(parejas):]:                # 4) falta en el reproceso
+    for ra in pend_dian[len(parejas):]:                # 4) se elimino en el reproceso
+        sal_eliminados += numero(ra["datos"]["sal"])
         anotar(clave, nombre_deudor(ra["datos"]),
-               f"Registro que NO esta en {NOMBRE_B}", "saldoscp",
+               f"Registro ELIMINADO en {NOMBRE_B}", "saldoscp",
                foto_linea(ra), "(no existe)", ra, None)
 
-    for rb in disponibles:                             # 5) sobra en el reproceso
+    for rb in disponibles:                             # 5) es nuevo en el reproceso
+        sal_nuevos += numero(rb["datos"]["sal"])
         anotar(clave, nombre_deudor(rb["datos"]),
-               "Registro que NO esta en la DIAN", "saldoscp",
+               f"Registro NUEVO en {NOMBRE_B} (no esta en la DIAN)", "saldoscp",
                "(no existe)", foto_linea(rb), None, rb)
 
 # ---------- resumen (solo en pantalla) ----------
@@ -247,12 +291,16 @@ resumen = [
     {"concepto": f"Archivos leidos en {NOMBRE_B}", "valor": len(arch_rep)},
     {"concepto": "Registros saldoscp en DIAN", "valor": len(reg_dian)},
     {"concepto": f"Registros saldoscp en {NOMBRE_B}", "valor": len(reg_rep)},
-    {"concepto": "Diferencia en cantidad de registros", "valor": len(reg_dian) - len(reg_rep)},
+    {"concepto": "Registros de menos en el reproceso", "valor": len(reg_dian) - len(reg_rep)},
+    {"concepto": "--- plata ---", "valor": ""},
     {"concepto": "Suma sal DIAN", "valor": sal_dian},
     {"concepto": f"Suma sal {NOMBRE_B}", "valor": sal_rep},
     {"concepto": "Diferencia en suma sal", "valor": sal_dian - sal_rep},
+    {"concepto": "  sal de los registros ELIMINADOS", "valor": sal_eliminados},
+    {"concepto": "  sal de los registros NUEVOS", "valor": sal_nuevos},
     {"concepto": "Valores sal no numericos (DIAN / reproceso)",
      "valor": f"{malos_dian} / {malos_rep}"},
+    {"concepto": "--- cruce ---", "valor": ""},
     {"concepto": "Lineas identicas", "valor": iguales},
     {"concepto": "Llaves con alguna diferencia",
      "valor": len({f["llave (cpt | nid)"] for f in diferencias})},
