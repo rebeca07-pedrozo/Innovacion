@@ -68,28 +68,66 @@ for f in archivos:
     print(f"   Primeras líneas: {muestra[:2]}\n")
 
 #2 buscar numero 
-numero = "74359610"   # <-- pon aquí el número a buscar (cédula, NIT o cuenta)
+import time
+
+numero = "74359610"            # <-- tu número a buscar
+BLOQUE = 50 * 1024 * 1024      # tamaño de cada bloque (50 MB)
 
 resultados = []
 
+def descargar_rango(file_id, inicio, fin, token):
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true"
+    headers = {"Authorization": f"Bearer {token}", "Range": f"bytes={inicio}-{fin}"}
+    for intento in range(5):
+        try:
+            r = requests.get(url, headers=headers, timeout=120)
+            if r.status_code in (200, 206):
+                return r.content
+            if r.status_code == 401:
+                return None            # token vencido
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(3)
+    raise RuntimeError(f"No se pudo descargar el bloque {inicio}-{fin}")
+
 def buscar_en_archivo(f):
-    url = f"https://www.googleapis.com/drive/v3/files/{f['id']}?alt=media&supportsAllDrives=true"
-    r = requests.get(url, headers={"Authorization": f"Bearer {token_fresco()}"}, stream=True)
-    for n, linea_bytes in enumerate(r.iter_lines(chunk_size=8*1024*1024), start=1):
-        if not linea_bytes:
+    file_id = f["id"]
+    tamano = int(f["size"])
+    token = token_fresco()
+    resto = b""
+    n = 0
+    inicio = 0
+    while inicio < tamano:
+        fin = min(inicio + BLOQUE - 1, tamano - 1)
+        datos = descargar_rango(file_id, inicio, fin, token)
+        if datos is None:              # renueva token y reintenta el mismo bloque
+            token = token_fresco()
             continue
-        linea = linea_bytes.decode("latin-1").rstrip(";")   # quita el ; del final
+        buffer = resto + datos
+        partes = buffer.split(b"\n")
+        resto = partes.pop()           # guarda la línea que quedó partida
+        for linea_bytes in partes:
+            n += 1
+            linea = linea_bytes.decode("latin-1").rstrip(";").rstrip("\r")
+            if numero in linea:
+                resultados.append({"archivo": f["name"], "linea": n,
+                                   "texto_original": linea,
+                                   "legible": " ".join(linea.split())})
+        inicio = fin + 1
+    if resto:                          # última línea sin salto final
+        n += 1
+        linea = resto.decode("latin-1").rstrip(";").rstrip("\r")
         if numero in linea:
-            legible = " ".join(linea.split())   # junta los espacios para poder leerla
             resultados.append({"archivo": f["name"], "linea": n,
-                               "texto_original": linea, "legible": legible})
-    r.close()
+                               "texto_original": linea,
+                               "legible": " ".join(linea.split())})
 
 for f in archivos:
     print(f"Buscando en {f['name']} ...")
     buscar_en_archivo(f)
+    print(f"   listo ({sum(1 for x in resultados if x['archivo']==f['name'])} coincidencias)")
 
-print(f"\n✅ Coincidencias: {len(resultados)}\n")
+print(f"\n✅ Coincidencias totales: {len(resultados)}\n")
 for res in resultados:
     print(f"— {res['archivo']} (línea {res['linea']}):")
     print("   ", res["legible"])
