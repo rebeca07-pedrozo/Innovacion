@@ -68,47 +68,34 @@ for f in archivos:
     print(f"   Primeras líneas: {muestra[:2]}\n")
 
 #2 buscar numero 
-numero = "123456789"   # <-- pon aquí el número a buscar
-hay_encabezado = True  # <-- True si la primera línea son nombres de columna
+numero = "74359610"   # <-- pon aquí el número a buscar (cédula, NIT o cuenta)
 
 resultados = []
 
-def buscar_en_archivo(f, delim):
+def buscar_en_archivo(f):
     url = f"https://www.googleapis.com/drive/v3/files/{f['id']}?alt=media&supportsAllDrives=true"
     r = requests.get(url, headers={"Authorization": f"Bearer {token_fresco()}"}, stream=True)
-    columnas = None
-    for n, linea_bytes in enumerate(r.iter_lines(chunk_size=8*1024*1024)):
-        if linea_bytes is None:
+    for n, linea_bytes in enumerate(r.iter_lines(chunk_size=8*1024*1024), start=1):
+        if not linea_bytes:
             continue
-        linea = linea_bytes.decode("latin-1")
-        if n == 0 and hay_encabezado:
-            columnas = linea.split(delim) if delim else None
-            continue
-        # Coincidencia por campo exacto (evita falsos positivos tipo 123 dentro de 1234)
-        if delim:
-            campos = linea.split(delim)
-            if numero in campos:
-                resultados.append({"archivo": f["name"], "linea": n, "campos": campos})
-        else:
-            if numero in linea:  # archivos de ancho fijo
-                resultados.append({"archivo": f["name"], "linea": n, "campos": [linea]})
+        linea = linea_bytes.decode("latin-1").rstrip(";")   # quita el ; del final
+        if numero in linea:
+            legible = " ".join(linea.split())   # junta los espacios para poder leerla
+            resultados.append({"archivo": f["name"], "linea": n,
+                               "texto_original": linea, "legible": legible})
     r.close()
-    return columnas
 
-encabezados = {}
 for f in archivos:
     print(f"Buscando en {f['name']} ...")
-    cols = buscar_en_archivo(f, delim_por_archivo[f["id"]])
-    if cols:
-        encabezados[f["name"]] = cols
+    buscar_en_archivo(f)
 
-print(f"\n✅ Coincidencias encontradas: {len(resultados)}\n")
+print(f"\n✅ Coincidencias: {len(resultados)}\n")
 for res in resultados:
     print(f"— {res['archivo']} (línea {res['linea']}):")
-    cols = encabezados.get(res["archivo"])
-    if cols and len(cols) == len(res["campos"]):
-        for nombre, valor in zip(cols, res["campos"]):
-            print(f"    {nombre}: {valor}")
-    else:
-        print("   ", res["campos"])
+    print("   ", res["legible"])
     print()
+
+import pandas as pd
+tabla = pd.DataFrame(resultados)
+tabla.to_csv("/content/coincidencias.csv", index=False)
+print("Guardado en /content/coincidencias.csv")
