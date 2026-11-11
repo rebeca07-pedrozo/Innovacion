@@ -1,4 +1,4 @@
-#Bloque 1
+#BLOQUE 1
 !pip install xlsxwriter -q
 import pandas as pd, numpy as np, os, re, unicodedata, glob, shutil
 from google.colab import drive
@@ -10,9 +10,9 @@ PROCESADOS = "/content/drive/My Drive/Optimizacion-Premios/2026/Procesados/"
 MAESTRO    = "/content/drive/My Drive/Optimizacion-Premios/2026/MaestroTerceros.xlsx"
 
 ANIO    = 2026
-I_MES   = 0    # columna MES
-I_VALOR = 17   # columna VALOR_TOTAL_DEL_PREMIO_BASE
-I_SINO  = 9    # columna REGISTRADO_EN_COL_JUEGOS
+I_MES   = 0
+I_VALOR = 17
+I_SINO  = 9
 
 TOPE_PREMIOS = 2_514_000   # 20%
 TOPE_OTROS   = 524_000     # 3.5%
@@ -24,22 +24,33 @@ ET_PAGO      = "pago"
 ET_RETE      = "reta"
 FORMATO      = "1001"
 ORIGEN       = "Premios"
-RETE_EN_CERO = False    # True si hay que reportar reta aunque sea 0
+RETE_EN_CERO = False
 
-# Nombre REAL de la columna en tus archivos. "" = queda en blanco.
-COL_DOC = ""
-MAPA = {
-    "TIPO DE DOCUMENTO": "",
-    "DIGITO CHEQUEO":    "",
-    "APELLIDO1":         "",
-    "APELLIDO2":         "",
-    "NOMBRE1":           "",
-    "NOMBRE2":           "",
-    "RAZON SOCIAL":      "",
-    "DIRECCION":         "",
-    "DEPTO Y MUNICIPIO": "",
-    "PAIS":              "",
+CAMPOS = ["ORIGEN INFORMACION", "DOCUMENTO", "TIPO DE DOCUMENTO", "DIGITO CHEQUEO",
+          "APELLIDO1", "APELLIDO2", "NOMBRE1", "NOMBRE2", "RAZON SOCIAL",
+          "DIRECCION", "DEPTO Y MUNICIPIO", "PAIS", "FORMATO", "CONCEPTO",
+          "ETIQUETA", "VALOR"]
+
+# --- Columnas de origen (se buscan sin tildes ni espacios dobles) ---
+COL_DOC    = "NUMERO ID BENEFICIARIO DEL PREMIO"
+COL_TIPO   = "TIPO ID BENEFICIARIO DEL PREMIO"
+COL_NOMBRE = "NOMBRES Y APELLIDOS O RAZON SOCIAL BENEFICIARIO DEL PREMIO"
+COL_DIR    = "DIRECCION DEL BENEFICIARIO DEL PREMIO"
+COL_CIUDAD = "CIUDAD DE LA DIRECCION DEL BENEFICIARIO DEL PREMIO"
+
+ORDEN_NOMBRE = "NOMBRES_PRIMERO"   # o "APELLIDOS_PRIMERO"
+PAIS_DEF     = "169"               # Colombia — CONFIRMAR
+CALCULAR_DV  = True
+
+TIPOS_DOC = {
+    "CC": "13", "C.C.": "13", "CEDULA DE CIUDADANIA": "13",
+    "NIT": "31", "N.I.T.": "31",
+    "CE": "22", "CEDULA DE EXTRANJERIA": "22",
+    "TI": "12", "TARJETA DE IDENTIDAD": "12",
+    "PA": "41", "PASAPORTE": "41",
 }
+
+CIUDADES = {}   # ciudad -> código DANE (depto+municipio)
 
 
 def num(v):
@@ -94,7 +105,7 @@ ALIAS.update({"SETIEMBRE":9, "ENE":1, "FEB":2, "MAR":3, "ABR":4, "MAY":5,
 
 
 def mesnum(v):
-    """JULIO / julio / Julio / jul / 7 -> 7"""
+    """JULIO / julio / jul / 7 -> 7"""
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
     s = "".join(c for c in unicodedata.normalize("NFD", str(v))
@@ -110,6 +121,59 @@ def texto(v):
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return ""
     return str(v).strip()
+
+
+def limpia(s):
+    """Sin tildes, sin espacios dobles, en mayúsculas."""
+    s = "".join(c for c in unicodedata.normalize("NFD", str(s))
+                if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", s).strip().upper()
+
+
+def col(tabla, nombre):
+    """Busca una columna sin importar tildes ni espacios dobles."""
+    obj = limpia(nombre)
+    for c in tabla.columns:
+        if limpia(c) == obj:
+            return c
+    return None
+
+
+def digitos(v):
+    return re.sub(r"\D", "", str(v)) if v is not None else ""
+
+
+PRIMOS = [3,7,13,17,19,23,29,37,41,43,47,53,59,67,71]
+
+def dv_nit(nit):
+    """Dígito de chequeo DIAN. VALIDAR contra NITs conocidos antes de confiar."""
+    d = digitos(nit)
+    if not d:
+        return ""
+    s = sum(int(x) * PRIMOS[i] for i, x in enumerate(reversed(d)) if i < len(PRIMOS))
+    r = s % 11
+    return str(r if r < 2 else 11 - r)
+
+
+def partir_nombre(completo, es_juridica, orden):
+    """-> (APELLIDO1, APELLIDO2, NOMBRE1, NOMBRE2, RAZON SOCIAL)"""
+    t = re.sub(r"\s+", " ", texto(completo)).strip()
+    if not t:
+        return ("", "", "", "", "")
+    if es_juridica:
+        return ("", "", "", "", t)
+
+    p = t.split()
+    if orden == "APELLIDOS_PRIMERO":
+        if len(p) >= 4: return (p[0], p[1], p[2], " ".join(p[3:]), "")
+        if len(p) == 3: return (p[0], p[1], p[2], "", "")
+        if len(p) == 2: return (p[0], "", p[1], "", "")
+        return (p[0], "", "", "", "")
+    else:
+        if len(p) >= 4: return (p[2], " ".join(p[3:]), p[0], p[1], "")
+        if len(p) == 3: return (p[1], p[2], p[0], "", "")
+        if len(p) == 2: return (p[1], "", p[0], "", "")
+        return ("", "", p[0], "", "")
 
 
 for c in (ENTRADA, SALIDA, PROCESADOS):
@@ -138,12 +202,14 @@ for et, i in [("MES", I_MES), ("VALOR", I_VALOR), ("SI/NO", I_SINO)]:
     print(f"  {et:<6} idx {i:>2} -> '{df.columns[i]}'")
     print(f"         {df.iloc[:4, i].tolist()}")
 
-print("\nTODAS LAS COLUMNAS (para llenar COL_DOC y MAPA):")
-for i, c in enumerate(df.columns):
-    print(f"  [{i:>2}] {c}")
+print("\nCOLUMNAS DEL 1001 QUE SE ENCONTRARON:")
+for et, nom in [("DOCUMENTO", COL_DOC), ("TIPO ID", COL_TIPO), ("NOMBRE", COL_NOMBRE),
+                ("DIRECCION", COL_DIR), ("CIUDAD", COL_CIUDAD)]:
+    c = col(df, nom)
+    print(f"  {et:<10} -> {c if c else '*** NO ENCONTRADA ***'}")
 print("=" * 70)
 
-#Bloque 2
+#BLOQUE 2
 c_mes, c_val, c_sino = df.columns[I_MES], df.columns[I_VALOR], df.columns[I_SINO]
 
 df["Base"]      = df[c_val].map(num)
@@ -191,7 +257,27 @@ falta = df[df["Mes Num"].isna()]
 if len(falta):
     print(f"[AVISO] {len(falta):,} filas sin mes en:", sorted(falta["Archivo Origen"].unique()))
 
-#Bloque 3
+print("\n--- DIAGNÓSTICO PARA EL 1001 ---")
+for et, nom in [("TIPO ID", COL_TIPO),
+                ("IMPTO ASUMIDO", "IMPTO ASUMIDO SI / NO"),
+                ("OTORGADO POR", "PREMIO OTORGADO POR EL BANCO O POR UN 3RO.")]:
+    c = col(df, nom)
+    print(f"\n{et}  ->  {c}")
+    print(df[c].value_counts(dropna=False).to_string() if c is not None else "  NO ENCONTRADA")
+
+c_d, c_n, c_c = col(df, COL_DOC), col(df, COL_NOMBRE), col(df, COL_CIUDAD)
+if c_d is not None:
+    print(f"\nFilas sin documento: {df[c_d].map(digitos).eq('').sum():,} de {len(df):,}")
+    print(f"Terceros distintos : {df[c_d].map(digitos).replace('', np.nan).nunique():,}")
+if c_n is not None:
+    print("\nEjemplos de nombre (para definir ORDEN_NOMBRE):")
+    for v in df[c_n].dropna().astype(str).head(8):
+        print(f"  {v}")
+if c_c is not None:
+    print("\nCiudades distintas (para llenar CIUDADES):")
+    print(df[c_c].dropna().map(limpia).value_counts().head(20).to_string())
+
+#BLOQUE 3
 def escribir(ruta, hojas):
     with pd.ExcelWriter(ruta, engine="xlsxwriter") as w:
         wb = w.book
@@ -214,7 +300,7 @@ def escribir(ruta, hojas):
 
 print("--- ARCHIVOS GENERADOS ---")
 for mes, d in df[df["Mes Num"].notna()].groupby("Mes Num"):
-    mes = int(mes)
+    mes     = int(mes)
     nombre  = MESES[mes]
     carpeta = os.path.join(SALIDA, f"{mes:02d}. {nombre.capitalize()}")
     os.makedirs(carpeta, exist_ok=True)
@@ -234,7 +320,7 @@ for mes, d in df[df["Mes Num"].notna()].groupby("Mes Num"):
     })
     print(f"  {nombre:<12} {len(d):>7,} filas  ->  {os.path.basename(ruta)}")
 
-#Bloque 4
+#BLOQUE 4
 mes_arch = (df.dropna(subset=["Mes Num"]).groupby("Archivo Origen")["Mes Num"]
               .agg(lambda s: int(s.mode().iloc[0])).to_dict())
 
@@ -258,8 +344,7 @@ for a in archivos:
         print(f"  Movido: {sub}/{os.path.basename(destino)}")
     else:
         print(f"  [ERROR] No se movió: {base}")
-
-#Bloque 5
+#BLOQUE 5 
 archivos_mes = sorted(a for a in glob.glob(
         os.path.join(SALIDA, "**", "Consolidado_con_Retencion-*.xlsx"), recursive=True)
     if "ANUAL" not in os.path.basename(a).upper()
@@ -299,55 +384,86 @@ resumen = resumen[["Mes", "Filas", "Base_Total", "Retencion_Total"]]
 print("\n--- RESUMEN ANUAL ---")
 print(resumen.to_string(index=False, float_format=lambda x: f"{x:,.2f}"))
 
-# ---------- FORMATO 1001 ----------
-CAMPOS = ["ORIGEN INFORMACION", "DOCUMENTO", "TIPO DE DOCUMENTO", "DIGITO CHEQUEO",
-          "APELLIDO1", "APELLIDO2", "NOMBRE1", "NOMBRE2", "RAZON SOCIAL",
-          "DIRECCION", "DEPTO Y MUNICIPIO", "PAIS", "FORMATO", "CONCEPTO",
-          "ETIQUETA", "VALOR"]
-
+# ---------------- FORMATO 1001 ----------------
 hojas_anual = {"Resumen por Mes": resumen}
-pendientes  = pd.DataFrame()
 
-if not COL_DOC or COL_DOC not in anual.columns:
-    print(f"\n[1001] No se generó: falta definir COL_DOC. Hoy vale '{COL_DOC}'.")
+c_doc  = col(anual, COL_DOC)
+c_tipo = col(anual, COL_TIPO)
+c_nom  = col(anual, COL_NOMBRE)
+c_dir  = col(anual, COL_DIR)
+c_ciu  = col(anual, COL_CIUDAD)
+
+if c_doc is None:
+    print(f"\n[1001] No se generó: no encuentro la columna '{COL_DOC}'.")
 else:
-    anual["_doc"] = anual[COL_DOC].map(texto)
+    anual["_doc"] = anual[c_doc].map(digitos)
 
-    if os.path.exists(MAESTRO):
-        maestro = pd.read_excel(MAESTRO)
-        maestro["_doc"] = maestro[maestro.columns[0]].map(texto)
-        anual = anual.merge(maestro.drop(columns=[maestro.columns[0]]),
-                            on="_doc", how="left", suffixes=("", "_m"))
-        print(f"\n[1001] Maestro cargado: {len(maestro):,} terceros")
-    else:
-        print(f"\n[1001] Sin maestro en {MAESTRO} (opcional)")
-
-    val = anual[anual["_doc"].ne("") & anual["Concepto"].ne("")]
+    val   = anual[anual["_doc"].ne("") & anual["Concepto"].ne("")]
     fuera = len(anual) - len(val)
     if fuera:
-        print(f"[1001] {fuera:,} filas sin documento o sin concepto quedan fuera")
+        print(f"\n[1001] {fuera:,} filas sin documento o sin concepto quedan fuera")
 
     tot = (val.groupby(["_doc", "Concepto"], dropna=False)
               .agg(Pago=("Base","sum"), Rete=("Valor Retención","sum")).reset_index())
 
-    ident = pd.DataFrame({"_doc": tot["_doc"].unique()})
-    for campo, col in MAPA.items():
-        if col and col in val.columns:
-            aux = (val.assign(_v=val[col].map(texto))
-                      .query("_v != ''").groupby("_doc")["_v"].first())
-            ident[campo] = ident["_doc"].map(aux).fillna("")
-        else:
-            ident[campo] = ""
+    def primero(columna):
+        if columna is None:
+            return pd.Series(dtype=object)
+        aux = val.assign(_v=val[columna].map(texto))
+        return aux[aux["_v"] != ""].groupby("_doc")["_v"].first()
 
-    tot = tot.merge(ident, on="_doc", how="left")
+    ident = pd.DataFrame({"_doc": sorted(tot["_doc"].unique())})
+    ident["_tipo"]     = ident["_doc"].map(primero(c_tipo)).fillna("")
+    ident["_nombre"]   = ident["_doc"].map(primero(c_nom)).fillna("")
+    ident["DIRECCION"] = ident["_doc"].map(primero(c_dir)).fillna("")
+    ident["_ciudad"]   = ident["_doc"].map(primero(c_ciu)).fillna("")
+
+    ident["TIPO DE DOCUMENTO"] = ident["_tipo"].map(lambda v: TIPOS_DOC.get(limpia(v), ""))
+    sin_tipo = sorted(set(ident.loc[ident["TIPO DE DOCUMENTO"].eq(""), "_tipo"]) - {""})
+    if sin_tipo:
+        print(f"[1001] Tipos sin equivalencia en TIPOS_DOC: {sin_tipo}")
+
+    es_jur = ident["TIPO DE DOCUMENTO"].eq("31")
+    ident["DIGITO CHEQUEO"] = ""
+    if CALCULAR_DV:
+        ident.loc[es_jur, "DIGITO CHEQUEO"] = ident.loc[es_jur, "_doc"].map(dv_nit)
+
+    partes_nom = ident.apply(
+        lambda r: partir_nombre(r["_nombre"], r["TIPO DE DOCUMENTO"] == "31", ORDEN_NOMBRE),
+        axis=1, result_type="expand")
+    partes_nom.columns = ["APELLIDO1", "APELLIDO2", "NOMBRE1", "NOMBRE2", "RAZON SOCIAL"]
+    ident = pd.concat([ident, partes_nom], axis=1)
+
+    ident["DEPTO Y MUNICIPIO"] = ident["_ciudad"].map(lambda c: CIUDADES.get(limpia(c), ""))
+    ident["PAIS"] = PAIS_DEF
+
+    for c in CAMPOS:
+        if c not in ident.columns:
+            ident[c] = ""
+
+    if os.path.exists(MAESTRO):
+        m = pd.read_excel(MAESTRO)
+        m["_doc"] = m[m.columns[0]].map(digitos)
+        m = m.drop(columns=[m.columns[0]]).groupby("_doc").first()
+        llenados = 0
+        for c in CAMPOS:
+            if c in m.columns:
+                relleno = ident["_doc"].map(m[c]).fillna("")
+                hueco   = ident[c].astype(str).str.strip() == ""
+                llenados += (hueco & relleno.ne("")).sum()
+                ident.loc[hueco, c] = relleno[hueco]
+        print(f"[1001] Maestro: {len(m):,} terceros, {llenados:,} celdas completadas")
+    else:
+        print(f"[1001] Sin maestro en {MAESTRO} (opcional)")
+
+    tot = tot.merge(ident[["_doc"] + CAMPOS[2:12]], on="_doc", how="left")
 
     filas = []
     for _, r in tot.iterrows():
         for et, v in [(ET_PAGO, r["Pago"]), (ET_RETE, r["Rete"])]:
             if et == ET_RETE and not RETE_EN_CERO and (pd.isna(v) or v == 0):
                 continue
-            f = {c: "" for c in CAMPOS}
-            f.update({c: r.get(c, "") for c in MAPA})
+            f = {c: texto(r.get(c, "")) for c in CAMPOS}
             f["ORIGEN INFORMACION"] = ORIGEN
             f["DOCUMENTO"] = r["_doc"]
             f["FORMATO"]   = FORMATO
@@ -357,19 +473,24 @@ else:
             filas.append(f)
 
     ex = pd.DataFrame(filas, columns=CAMPOS)
-    print(f"[1001] {len(ex):,} filas  |  {tot['_doc'].nunique():,} terceros")
-    print(ex.groupby(["CONCEPTO","ETIQUETA"])["VALOR"]
-            .agg(["size","sum"]).to_string(float_format=lambda x: f"{x:,.0f}"))
+    print(f"\n[1001] {len(ex):,} filas  |  {tot['_doc'].nunique():,} terceros")
+    print(ex.groupby(["CONCEPTO", "ETIQUETA"])["VALOR"]
+            .agg(["size", "sum"]).to_string(float_format=lambda x: f"{x:,.0f}"))
 
-    clave = ["TIPO DE DOCUMENTO", "APELLIDO1", "NOMBRE1", "RAZON SOCIAL", "DIRECCION"]
-    vacio = ex[clave].apply(lambda c: c.astype(str).str.strip() == "").any(axis=1)
-    pendientes = ex[vacio].groupby("DOCUMENTO")[clave].first().reset_index()
+    clave = ["TIPO DE DOCUMENTO", "APELLIDO1", "NOMBRE1", "RAZON SOCIAL",
+             "DIRECCION", "DEPTO Y MUNICIPIO"]
+    falta_dato = ex[clave].apply(lambda c: c.astype(str).str.strip() == "").any(axis=1)
+    pendientes = ex[falta_dato].groupby("DOCUMENTO")[clave].first().reset_index()
     if len(pendientes):
-        print(f"\n[1001] {len(pendientes):,} terceros SIN DATOS -> consultar en SAS/BigQuery")
-
-    hojas_anual["Formato 1001"] = ex
-    if len(pendientes):
+        print(f"[1001] {len(pendientes):,} terceros SIN DATOS -> consultar en SAS/BigQuery")
         hojas_anual["TERCEROS_SIN_DATOS"] = pendientes
+
+    revision = ident[["_doc", "_nombre", "APELLIDO1", "APELLIDO2",
+                      "NOMBRE1", "NOMBRE2", "RAZON SOCIAL"]].copy()
+    revision.columns = ["DOCUMENTO", "NOMBRE ORIGINAL", "APELLIDO1", "APELLIDO2",
+                        "NOMBRE1", "NOMBRE2", "RAZON SOCIAL"]
+    hojas_anual["NOMBRES_PARTIDOS"] = revision
+    hojas_anual["Formato 1001"]     = ex
 
 t = anual["Tarifa Retención (%)"]
 if (t == 20.0).any():
@@ -385,3 +506,4 @@ ruta_csv = os.path.join(SALIDA, f"CONSOLIDADO_ANUAL_{ANIO}_COMPLETO.csv")
 anual.drop(columns=[c for c in ["_doc"] if c in anual.columns]) \
      .to_csv(ruta_csv, index=False, encoding="utf-8")
 print(f"Guardado (completo): {ruta_csv}")
+
