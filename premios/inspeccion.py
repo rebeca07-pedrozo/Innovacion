@@ -14,17 +14,17 @@ I_MES   = 0
 I_VALOR = 17
 I_SINO  = 9
 
+# Topes por PAGO individual (confirmado: no se acumula por tercero en el mes)
 TOPE_PREMIOS = 2_514_000   # 20%
 TOPE_OTROS   = 524_000     # 3.5%
 
 # --- Formato 1001 ---
-CONCEPTO_SI  = "5044"   # registrado en Coljuegos
-CONCEPTO_NO  = "5016"   # cashback y premios no registrados
-ET_PAGO      = "pago"
-ET_RETE      = "reta"
-FORMATO      = "1001"
-ORIGEN       = "Premios"
-RETE_EN_CERO = False
+CONCEPTO_SI = "5044"   # registrado en Coljuegos
+CONCEPTO_NO = "5016"   # cashback y premios no registrados
+ET_PAGO     = "pago"
+ET_RETE     = "reta"   # solo para retenciones ASUMIDAS
+FORMATO     = "1001"
+ORIGEN      = "Premios"
 
 CAMPOS = ["ORIGEN INFORMACION", "DOCUMENTO", "TIPO DE DOCUMENTO", "DIGITO CHEQUEO",
           "APELLIDO1", "APELLIDO2", "NOMBRE1", "NOMBRE2", "RAZON SOCIAL",
@@ -32,25 +32,26 @@ CAMPOS = ["ORIGEN INFORMACION", "DOCUMENTO", "TIPO DE DOCUMENTO", "DIGITO CHEQUE
           "ETIQUETA", "VALOR"]
 
 # --- Columnas de origen (se buscan sin tildes ni espacios dobles) ---
-COL_DOC    = "NUMERO ID BENEFICIARIO DEL PREMIO"
-COL_TIPO   = "TIPO ID BENEFICIARIO DEL PREMIO"
-COL_NOMBRE = "NOMBRES Y APELLIDOS O RAZON SOCIAL BENEFICIARIO DEL PREMIO"
-COL_DIR    = "DIRECCION DEL BENEFICIARIO DEL PREMIO"
-COL_CIUDAD = "CIUDAD DE LA DIRECCION DEL BENEFICIARIO DEL PREMIO"
+COL_DOC     = "NUMERO ID BENEFICIARIO DEL PREMIO"
+COL_TIPO    = "TIPO ID BENEFICIARIO DEL PREMIO"
+COL_NOMBRE  = "NOMBRES Y APELLIDOS O RAZON SOCIAL BENEFICIARIO DEL PREMIO"
+COL_DIR     = "DIRECCION DEL BENEFICIARIO DEL PREMIO"
+COL_CIUDAD  = "CIUDAD DE LA DIRECCION DEL BENEFICIARIO DEL PREMIO"
+COL_ASUMIDO = "IMPTO ASUMIDO SI / NO"
 
-ORDEN_NOMBRE = "NOMBRES_PRIMERO"   # o "APELLIDOS_PRIMERO"
-PAIS_DEF     = "169"               # Colombia — CONFIRMAR
+ORDEN_NOMBRE = "NOMBRES_PRIMERO"
+PAIS_DEF     = "169"    # Colombia — CONFIRMAR
 CALCULAR_DV  = True
 
+# Código interno -> código DIAN.  *** PENDIENTE CONFIRMAR ***
 TIPOS_DOC = {
-    "CC": "13", "C.C.": "13", "CEDULA DE CIUDADANIA": "13",
-    "NIT": "31", "N.I.T.": "31",
-    "CE": "22", "CEDULA DE EXTRANJERIA": "22",
-    "TI": "12", "TARJETA DE IDENTIDAD": "12",
-    "PA": "41", "PASAPORTE": "41",
+    "1": "13",   # ¿cédula de ciudadanía?
+    "2": "31",   # ¿NIT?
+    "4": "22",   # ¿cédula de extranjería?
 }
 
-CIUDADES = {}   # ciudad -> código DANE (depto+municipio)
+# Ciudad -> código DANE concatenado (depto+municipio, 5 dígitos). Pendiente.
+CIUDADES = {}
 
 
 def num(v):
@@ -204,7 +205,7 @@ for et, i in [("MES", I_MES), ("VALOR", I_VALOR), ("SI/NO", I_SINO)]:
 
 print("\nCOLUMNAS DEL 1001 QUE SE ENCONTRARON:")
 for et, nom in [("DOCUMENTO", COL_DOC), ("TIPO ID", COL_TIPO), ("NOMBRE", COL_NOMBRE),
-                ("DIRECCION", COL_DIR), ("CIUDAD", COL_CIUDAD)]:
+                ("DIRECCION", COL_DIR), ("CIUDAD", COL_CIUDAD), ("ASUMIDO", COL_ASUMIDO)]:
     c = col(df, nom)
     print(f"  {et:<10} -> {c if c else '*** NO ENCONTRADA ***'}")
 print("=" * 70)
@@ -219,6 +220,7 @@ df["Mes Num"]   = df[c_mes].map(mesnum)
 si = df["Coljuegos"].eq("SI")
 no = df["Coljuegos"].eq("NO")
 
+# Tope por pago individual
 df["Tarifa Retención (%)"] = 0.0
 df.loc[si & df["Base"].gt(TOPE_PREMIOS), "Tarifa Retención (%)"] = 20.0
 df.loc[no & df["Base"].gt(TOPE_OTROS),   "Tarifa Retención (%)"] = 3.5
@@ -258,8 +260,7 @@ if len(falta):
     print(f"[AVISO] {len(falta):,} filas sin mes en:", sorted(falta["Archivo Origen"].unique()))
 
 print("\n--- DIAGNÓSTICO PARA EL 1001 ---")
-for et, nom in [("TIPO ID", COL_TIPO),
-                ("IMPTO ASUMIDO", "IMPTO ASUMIDO SI / NO"),
+for et, nom in [("TIPO ID", COL_TIPO), ("IMPTO ASUMIDO", COL_ASUMIDO),
                 ("OTORGADO POR", "PREMIO OTORGADO POR EL BANCO O POR UN 3RO.")]:
     c = col(df, nom)
     print(f"\n{et}  ->  {c}")
@@ -270,14 +271,11 @@ if c_d is not None:
     print(f"\nFilas sin documento: {df[c_d].map(digitos).eq('').sum():,} de {len(df):,}")
     print(f"Terceros distintos : {df[c_d].map(digitos).replace('', np.nan).nunique():,}")
 if c_n is not None:
-    print("\nEjemplos de nombre (para definir ORDEN_NOMBRE):")
+    print("\nEjemplos de nombre:")
     for v in df[c_n].dropna().astype(str).head(8):
         print(f"  {v}")
-if c_c is not None:
-    print("\nCiudades distintas (para llenar CIUDADES):")
-    print(df[c_c].dropna().map(limpia).value_counts().head(20).to_string())
 
-#BLOQUE 3
+#BLOQUE 3 
 def escribir(ruta, hojas):
     with pd.ExcelWriter(ruta, engine="xlsxwriter") as w:
         wb = w.book
@@ -320,7 +318,7 @@ for mes, d in df[df["Mes Num"].notna()].groupby("Mes Num"):
     })
     print(f"  {nombre:<12} {len(d):>7,} filas  ->  {os.path.basename(ruta)}")
 
-#BLOQUE 4
+#BLOQUE 4 
 mes_arch = (df.dropna(subset=["Mes Num"]).groupby("Archivo Origen")["Mes Num"]
               .agg(lambda s: int(s.mode().iloc[0])).to_dict())
 
@@ -344,7 +342,8 @@ for a in archivos:
         print(f"  Movido: {sub}/{os.path.basename(destino)}")
     else:
         print(f"  [ERROR] No se movió: {base}")
-#BLOQUE 5 
+
+#BLOQUE 5
 archivos_mes = sorted(a for a in glob.glob(
         os.path.join(SALIDA, "**", "Consolidado_con_Retencion-*.xlsx"), recursive=True)
     if "ANUAL" not in os.path.basename(a).upper()
@@ -398,13 +397,25 @@ if c_doc is None:
 else:
     anual["_doc"] = anual[c_doc].map(digitos)
 
-    val   = anual[anual["_doc"].ne("") & anual["Concepto"].ne("")]
+    val   = anual[anual["_doc"].ne("") & anual["Concepto"].ne("")].copy()
     fuera = len(anual) - len(val)
     if fuera:
         print(f"\n[1001] {fuera:,} filas sin documento o sin concepto quedan fuera")
 
+    # 'reta' solo para retenciones ASUMIDAS
+    c_asu = col(val, COL_ASUMIDO)
+    val["_asu"]  = val[c_asu].map(sino) if c_asu is not None else ""
+    val["_rete"] = val["Valor Retención"].fillna(0)
+    val["_asumida"]    = np.where(val["_asu"].eq("SI"), val["_rete"], 0)
+    val["_no_asumida"] = np.where(val["_asu"].ne("SI"), val["_rete"], 0)
+
+    if c_asu is None:
+        print(f"[1001] OJO: no encuentro '{COL_ASUMIDO}'. No se generarán filas '{ET_RETE}'.")
+
     tot = (val.groupby(["_doc", "Concepto"], dropna=False)
-              .agg(Pago=("Base","sum"), Rete=("Valor Retención","sum")).reset_index())
+              .agg(Pago=("Base","sum"),
+                   Rete=("_asumida","sum"),
+                   ReteNoAsum=("_no_asumida","sum")).reset_index())
 
     def primero(columna):
         if columna is None:
@@ -418,7 +429,8 @@ else:
     ident["DIRECCION"] = ident["_doc"].map(primero(c_dir)).fillna("")
     ident["_ciudad"]   = ident["_doc"].map(primero(c_ciu)).fillna("")
 
-    ident["TIPO DE DOCUMENTO"] = ident["_tipo"].map(lambda v: TIPOS_DOC.get(limpia(v), ""))
+    ident["TIPO DE DOCUMENTO"] = ident["_tipo"].map(
+        lambda v: TIPOS_DOC.get(re.sub(r"\.0$", "", limpia(v)), ""))
     sin_tipo = sorted(set(ident.loc[ident["TIPO DE DOCUMENTO"].eq(""), "_tipo"]) - {""})
     if sin_tipo:
         print(f"[1001] Tipos sin equivalencia en TIPOS_DOC: {sin_tipo}")
@@ -461,7 +473,7 @@ else:
     filas = []
     for _, r in tot.iterrows():
         for et, v in [(ET_PAGO, r["Pago"]), (ET_RETE, r["Rete"])]:
-            if et == ET_RETE and not RETE_EN_CERO and (pd.isna(v) or v == 0):
+            if et == ET_RETE and (pd.isna(v) or v == 0):
                 continue
             f = {c: texto(r.get(c, "")) for c in CAMPOS}
             f["ORIGEN INFORMACION"] = ORIGEN
@@ -477,13 +489,41 @@ else:
     print(ex.groupby(["CONCEPTO", "ETIQUETA"])["VALOR"]
             .agg(["size", "sum"]).to_string(float_format=lambda x: f"{x:,.0f}"))
 
+    print(f"[1001] IMPTO ASUMIDO: {val['_asu'].value_counts(dropna=False).to_dict()}")
+
+    no_asum = tot[tot["ReteNoAsum"] > 0]
+    if len(no_asum):
+        print(f"[1001] {len(no_asum):,} terceros con retención NO asumida "
+              f"por {no_asum['ReteNoAsum'].sum():,.0f} -> NO van como '{ET_RETE}'")
+        hojas_anual["RETENCION_NO_ASUMIDA"] = no_asum[["_doc","Concepto","Pago","ReteNoAsum"]]
+
+    # --- Cuadre: el 1001 contra el consolidado ---
+    cuadre = pd.DataFrame({
+        "Medida": ["Base total", "Retención asumida", "Retención NO asumida", "Retención total"],
+        "Consolidado": [val["Base"].sum(), val["_asumida"].sum(),
+                        val["_no_asumida"].sum(), val["_rete"].sum()],
+        "Formato 1001": [ex.loc[ex["ETIQUETA"].eq(ET_PAGO), "VALOR"].sum(),
+                         ex.loc[ex["ETIQUETA"].eq(ET_RETE), "VALOR"].sum(), 0, 0],
+    })
+    cuadre["Diferencia"] = cuadre["Consolidado"] - cuadre["Formato 1001"]
+    print("\n--- CUADRE ---")
+    print(cuadre.to_string(index=False, float_format=lambda x: f"{x:,.0f}"))
+    hojas_anual["CUADRE"] = cuadre
+
     clave = ["TIPO DE DOCUMENTO", "APELLIDO1", "NOMBRE1", "RAZON SOCIAL",
              "DIRECCION", "DEPTO Y MUNICIPIO"]
     falta_dato = ex[clave].apply(lambda c: c.astype(str).str.strip() == "").any(axis=1)
     pendientes = ex[falta_dato].groupby("DOCUMENTO")[clave].first().reset_index()
     if len(pendientes):
-        print(f"[1001] {len(pendientes):,} terceros SIN DATOS -> consultar en SAS/BigQuery")
+        print(f"\n[1001] {len(pendientes):,} terceros SIN DATOS -> consultar en SAS/BigQuery")
         hojas_anual["TERCEROS_SIN_DATOS"] = pendientes
+
+    sin_cod = sorted(set(ident.loc[ident["DEPTO Y MUNICIPIO"].eq(""), "_ciudad"]
+                           .map(limpia)) - {""})
+    if sin_cod:
+        print(f"[1001] {len(sin_cod):,} ciudades sin código DANE")
+        hojas_anual["CIUDADES_PENDIENTES"] = pd.DataFrame(
+            {"CIUDAD": sin_cod, "CODIGO DANE": ""})
 
     revision = ident[["_doc", "_nombre", "APELLIDO1", "APELLIDO2",
                       "NOMBRE1", "NOMBRE2", "RAZON SOCIAL"]].copy()
@@ -506,4 +546,3 @@ ruta_csv = os.path.join(SALIDA, f"CONSOLIDADO_ANUAL_{ANIO}_COMPLETO.csv")
 anual.drop(columns=[c for c in ["_doc"] if c in anual.columns]) \
      .to_csv(ruta_csv, index=False, encoding="utf-8")
 print(f"Guardado (completo): {ruta_csv}")
-
