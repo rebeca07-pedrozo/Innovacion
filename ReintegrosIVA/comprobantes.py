@@ -1,4 +1,18 @@
-#Bloque A 
+#Bloque 1 
+import pandas as pd, numpy as np, re, unicodedata
+from datetime import datetime, timezone, timedelta
+import os
+
+from google.colab import auth
+auth.authenticate_user()
+
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+
+drive = build('drive', 'v3')
+print("Conectado a Google Drive")
+
+#Bloque 2
 import os
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
@@ -73,7 +87,37 @@ def mover_archivo(file_id, nuevo_parent):
 
 print("Funciones de Drive listas")
 
-#Bloque B
+#Bloque 3 
+FOLDER_ID = "16ItW6TXH3jK6dkG3JF8b9ehrzU4I2CMY"
+
+SEPARADOR       = ","
+IVA             = 0.19
+SIGNO_CUENTA_2  = 1
+TOLERANCIA      = 1.0
+
+COL_CUENTA  = "Cuenta"
+COL_DEBITO  = "Debito"
+COL_CREDITO = "Crédito"
+COL_TIPO    = "Tipo Comprobante"
+COL_DESCTRX = "Descripción transacción"
+
+SUB_REPORTE       = "REPORTE_GENERAL"
+SUB_COMPROBANTES  = "COMPROBANTES"
+SUB_TXT_PROC      = "TXT_PROCESADOS"
+
+padre = (drive.files().get(fileId=FOLDER_ID, fields="parents")
+              .execute(num_retries=5).get("parents", ["root"])[0])
+f_rep  = obtener_o_crear_subcarpeta(SUB_REPORTE, padre)
+f_comp = obtener_o_crear_subcarpeta(SUB_COMPROBANTES, padre)
+f_proc = obtener_o_crear_subcarpeta(SUB_TXT_PROC, padre)
+
+print("Carpetas listas (ya no se vuelven a crear):")
+print("   REPORTE_GENERAL:", f_rep)
+print("   COMPROBANTES   :", f_comp)
+print("   TXT_PROCESADOS :", f_proc)
+print("Configuración lista")
+
+#Bloque 4
 import os, re, unicodedata, openpyxl
 import pandas as pd
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -111,15 +155,18 @@ def _cols_txt(df):
 
 
 def _bloque(xw, sheet, df, startrow, gap=2):
+    """Escribe un DataFrame y devuelve la fila (0-based) libre siguiente."""
     df.to_excel(xw, sheet_name=sheet, startrow=startrow, index=False)
     return startrow + len(df) + 1 + gap
 
 
 def _cabe(df, fila_inicial):
+    """True si el detalle cabe en la hoja sin pasarse del límite de Excel."""
     return INCLUIR_DETALLE and (fila_inicial + len(df) + 5) <= MAX_FILAS_DETALLE
 
 
 def _detalle_aparte(df, nombre):
+    """Exporta el detalle a CSV local; al final se sube a Drive."""
     ruta = f"/content/DETALLE_{nombre}_{SELLO_ACTUAL}.csv"
     df.to_csv(ruta, index=False, encoding="utf-8-sig")
     _DETALLES_CSV.append(ruta)
@@ -210,14 +257,49 @@ def escribir_hoja_iva_ws(ws, sub, cuenta_iva, titulo, ts, cols):
         ws.cell(fila, 1, f"DETALLE: {len(det):,} líneas — no cabe en Excel. Ver CSV: {arch}")
 
 
-print("Funciones de Paso 1 y Paso 2 listas")
+print("Funciones de Paso 1 y Paso 2 listas (con control de límite de filas)")
 
-#Bloque C 
-assert FOLDER_ID.strip(), "Falta el FOLDER_ID"
+#Bloque 5 
+import unicodedata
+
+
+def leer_txt(ruta):
+    """Lee el .txt/.csv a DataFrame probando utf-8 y latin-1."""
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            return pd.read_csv(ruta, sep=SEPARADOR, dtype=str, encoding=enc, engine="python")
+        except Exception:
+            continue
+    raise ValueError(f"No pude leer {ruta}")
+
+
+def _col(df, nombre):
+    """Encuentra la columna ignorando mayúsculas, acentos y espacios."""
+    def norm(s):
+        s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+        return s.strip().lower()
+    objetivo = norm(nombre)
+    for c in df.columns:
+        if norm(c) == objetivo:
+            return c
+    raise KeyError(f"No encontré '{nombre}'. Columnas: {list(df.columns)}")
+
+
+def _a_numero(serie):
+    """Convierte texto a número: quita puntos de miles y usa coma como decimal."""
+    s = serie.astype(str).str.strip().str.replace(r"[^\d,.\-]", "", regex=True)
+    s = s.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+    return pd.to_numeric(s, errors="coerce").fillna(0.0)
+
+
+print("Funciones de lectura listas")
+
+#Bloque 6 
+assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 3"
 try:
     f_rep, f_comp, f_proc
 except NameError:
-    raise RuntimeError("Primero corre la celda 'Preparar carpetas' (una vez por sesión).")
+    raise RuntimeError("Primero corre el Bloque 3 (una vez por sesión).")
 
 archivos = listar_archivos(FOLDER_ID)
 assert archivos, "No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
@@ -272,11 +354,11 @@ for tipo, gt in master.groupby(cT):
     local  = f"/content/{nombre}"
 
     ex = buscar_archivo(nombre, f_comp)
-    if ex:                                   # ya existe -> lo bajo y le agrego hoja
+    if ex:
         descargar(ex["id"], local)
         wb = openpyxl.load_workbook(local)
         print(f"   {nombre}: ya existía, agregando hoja '{cuenta_iva}'")
-    else:                                    # no existe -> libro nuevo
+    else:
         wb = openpyxl.Workbook(); wb.remove(wb.active)
         print(f"   {nombre}: nuevo, creando hoja '{cuenta_iva}'")
 
