@@ -295,11 +295,32 @@ def _a_numero(serie):
 print("Funciones de lectura listas")
 
 #Bloque 6 
+#Bloque 6
+from copy import copy
+
 assert FOLDER_ID.strip(), "Falta el FOLDER_ID en el Bloque 3"
 try:
     f_rep, f_comp, f_proc
 except NameError:
     raise RuntimeError("Primero corre el Bloque 3 (una vez por sesión).")
+
+
+def _copiar_hoja(ws_origen, wb_destino, titulo):
+    """Copia una hoja completa a otro libro (valores y formato básico)."""
+    if titulo in wb_destino.sheetnames:
+        del wb_destino[titulo]
+    ws = wb_destino.create_sheet(title=titulo)
+    for fila in ws_origen.iter_rows():
+        for c in fila:
+            n = ws.cell(row=c.row, column=c.column, value=c.value)
+            if c.has_style:
+                n.font = copy(c.font); n.border = copy(c.border)
+                n.fill = copy(c.fill); n.number_format = c.number_format
+                n.alignment = copy(c.alignment)
+    for k, dim in ws_origen.column_dimensions.items():
+        ws.column_dimensions[k].width = dim.width
+    return ws
+
 
 archivos = listar_archivos(FOLDER_ID)
 assert archivos, "No hay .txt/.csv en la carpeta. Sube el lote y vuelve a correr."
@@ -348,6 +369,11 @@ subir(ruta_rep, f_rep)
 print(f"Paso 1 listo: {cuenta_iva}_{sello}.xlsx")
 
 # PASO 2 — UN Excel por comprobante, una HOJA por cuenta IVA (acumulativo)
+patron_viejo = re.compile(r"^(.*?)\s*-\s*(\d+)\.xlsx$", re.I)
+q = f"'{f_comp}' in parents and trashed = false"
+en_comprobantes = drive.files().list(q=q, fields="files(id, name)",
+                                     pageSize=1000).execute().get("files", [])
+
 for tipo, gt in master.groupby(cT):
     base   = nombre_comprobante(tipo)
     nombre = f"{base}.xlsx"
@@ -357,18 +383,36 @@ for tipo, gt in master.groupby(cT):
     if ex:
         descargar(ex["id"], local)
         wb = openpyxl.load_workbook(local)
-        print(f"   {nombre}: ya existía, agregando hoja '{cuenta_iva}'")
+        print(f"   {nombre}: ya existía, se le agrega la hoja '{cuenta_iva}'")
     else:
         wb = openpyxl.Workbook(); wb.remove(wb.active)
-        print(f"   {nombre}: nuevo, creando hoja '{cuenta_iva}'")
+        print(f"   {nombre}: nuevo")
 
+    # Absorber archivos con nombre viejo "BASE - cuenta.xlsx"
+    for f in en_comprobantes:
+        m = patron_viejo.match(f["name"])
+        if not m or nombre_comprobante(m.group(1)) != base:
+            continue
+        cuenta_vieja = m.group(2)
+        tmp = f"/content/_viejo_{f['name']}"
+        descargar(f["id"], tmp)
+        wv = openpyxl.load_workbook(tmp)
+        _copiar_hoja(wv[wv.sheetnames[0]], wb, _sheet_name(cuenta_vieja))
+        print(f"      absorbido '{f['name']}' -> hoja '{cuenta_vieja}'")
+        try:
+            drive.files().update(fileId=f["id"], body={"trashed": True}).execute()
+        except Exception as e:
+            print(f"      ojo: no pude mandar a papelera '{f['name']}' ({e}). Bórralo a mano.")
+
+    # Hoja de la cuenta del lote actual
     sh = _sheet_name(cuenta_iva)
-    if sh in wb.sheetnames: del wb[sh]       # si esa cuenta ya estaba, la reemplazo
+    if sh in wb.sheetnames: del wb[sh]
     ws = wb.create_sheet(title=sh)
     escribir_hoja_iva_ws(ws, gt, cuenta_iva,
                          f"CUENTA IVA: {cuenta_iva}  |  COMPROBANTE: {tipo}", ts, cols)
     wb.save(local)
     actualizar_o_crear(nombre, f_comp, local)
+    print(f"      hojas en {nombre}: {wb.sheetnames}")
 
 print(f"Paso 2 listo: hoja '{cuenta_iva}' en {master[cT].nunique()} comprobante(s)")
 
@@ -382,4 +426,3 @@ if _DETALLES_CSV:
 for f in archivos:
     mover_archivo(f["id"], f_proc)
 print("Lote terminado.")
-
